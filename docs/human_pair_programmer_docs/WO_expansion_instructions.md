@@ -1,39 +1,41 @@
 now we expand next. first assess the atomicity of it ie. is it around 300 loc or not. if not we break it into sequential WOs so that we dont bring in stubs.
 
-### Work Order 2 – Coordinate, bands, and border features
+### Work Order 3 – Connected components per color
 
-**Goal:** implement simple coordinate-based φ features.
+**Goal:** get connected components and basic stats (size, bbox).
 
-**Use:** `numpy`.
+**Use:** `numpy` + `scipy.ndimage` (`label`)
+(if SciPy is not available, use a simple BFS/DFS, but explicitly tell Claude to **prefer scipy.ndimage.label**).
 
 **Tasks:**
 
-* Given a `Grid`, implement functions:
+* Define a `Component` dataclass:
 
   ```python
-  def coord_features(grid: Grid) -> dict[tuple[int,int], dict]:
-      # returns per-pixel dict with:
-      #  "row", "col",
-      #  "row_mod": {2,3,4,5},
-      #  "col_mod": {2,3,4,5}
+  @dataclass
+  class Component:
+      id: int
+      color: int
+      pixels: list[tuple[int,int]]
+      size: int
+      bbox: tuple[int,int,int,int]  # (r_min, r_max, c_min, c_max)
   ```
+
+* Implement:
 
   ```python
-  def row_band_labels(H: int) -> dict[int, str]:
-      # row -> "top"/"middle"/"bottom"
+  def connected_components_by_color(grid: Grid) -> list[Component]:
+      # for each distinct color in grid:
+      #   create a binary mask (grid == color)
+      #   run scipy.ndimage.label(mask) to get connected labels
+      #   for each label, collect pixels, size, bbox
+      # return flat list of Component objects
   ```
 
-  ```python
-  def col_band_labels(W: int) -> dict[int, str]:
-      # col -> "left"/"middle"/"right"
-  ```
+* For now use 4-connectivity (up/down/left/right).
 
-  ```python
-  def border_mask(grid: Grid) -> np.ndarray[bool]:
-      # True for pixels on the outer border of the grid
-  ```
+* Add a tiny test: small grid with 2–3 blobs, print component sizes and bboxes.
 
-* Add a small `if __name__ == "__main__":` test that constructs a toy grid and prints these features for a few pixels.
 ---
 repeating same instrcutions so that u dont miss
 1. in this we dont want underspecificity so that claude gets some wiggle room. so be specific and dont leave a wiggle room 
