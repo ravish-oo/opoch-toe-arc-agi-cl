@@ -67,7 +67,7 @@ Below are **work orders** you can hand to Claude Code as separate tasks.
 
 ---
 
-### Work Order 2 – Coordinate, bands, and border features
+### Work Order 2 – Coordinate, bands, and border features ✅ COMPLETE
 
 **Goal:** implement simple coordinate-based φ features.
 
@@ -104,7 +104,7 @@ Below are **work orders** you can hand to Claude Code as separate tasks.
 
 ---
 
-### Work Order 3 – Connected components per color
+### Work Order 3 – Connected components per color ✅ COMPLETE
 
 **Goal:** get connected components and basic stats (size, bbox).
 
@@ -142,7 +142,7 @@ Below are **work orders** you can hand to Claude Code as separate tasks.
 
 ---
 
-### Work Order 4 – Object shape signatures and object_id map
+### Work Order 4 – Object shape signatures and object_id map ✅ COMPLETE
 
 **Goal:** group components into “objects” up to translation (shape equivalence).
 
@@ -213,6 +213,8 @@ Below are **work orders** you can hand to Claude Code as separate tasks.
 * Add a couple of simple tests:
 
   * Compare hashes for identical local patterns in different positions.
+
+---
 
 ## Work Order 6 – Component-relative roles & sectors
 

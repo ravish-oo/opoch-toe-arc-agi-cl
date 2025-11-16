@@ -9,8 +9,8 @@ math kernel spec (section 1.2.4):
 Uses 4-connectivity (horizontal/vertical neighbors only).
 """
 
-from dataclasses import dataclass
-from typing import List, Tuple
+from dataclasses import dataclass, field
+from typing import List, Tuple, Dict, Any
 
 import numpy as np
 
@@ -34,12 +34,14 @@ class Component:
         pixels: List of (row, col) tuples belonging to this component
         size: Number of pixels in this component (= len(pixels))
         bbox: Bounding box as (r_min, r_max, c_min, c_max), inclusive, 0-based
+        shape_signature: Translation-invariant shape representation (tuple of relative coords)
     """
     id: int
     color: int
     pixels: List[Pixel]
     size: int
     bbox: Tuple[int, int, int, int]  # (r_min, r_max, c_min, c_max)
+    shape_signature: Any = field(default=None)
 
 
 def connected_components_by_color(grid: Grid) -> List[Component]:
@@ -216,13 +218,101 @@ def _label_with_bfs(mask: np.ndarray, color: int, start_id: int) -> List[Compone
     return components
 
 
+def compute_shape_signature(comp: Component) -> Tuple[Tuple[int, int], ...]:
+    """
+    Compute a translation-invariant shape signature for a component.
+
+    Steps:
+      - Use comp.bbox = (r_min, r_max, c_min, c_max)
+      - For each pixel (r,c) in comp.pixels:
+          dr = r - r_min
+          dc = c - c_min
+      - Collect all (dr, dc) pairs
+      - Sort them in lexicographic order
+      - Return them as a tuple of (dr, dc) pairs
+
+    This makes shapes equal up to translation (same pattern, different location).
+
+    Args:
+        comp: Component to compute signature for
+
+    Returns:
+        Tuple of sorted (dr, dc) pairs representing the shape
+
+    Example:
+        >>> comp = Component(id=0, color=1, pixels=[(5,7), (5,8), (6,7)],
+        ...                  size=3, bbox=(5,6,7,8))
+        >>> compute_shape_signature(comp)
+        ((0, 0), (0, 1), (1, 0))
+    """
+    (r_min, r_max, c_min, c_max) = comp.bbox
+    rel_coords: List[Tuple[int, int]] = []
+    for (r, c) in comp.pixels:
+        dr = r - r_min
+        dc = c - c_min
+        rel_coords.append((dr, dc))
+
+    rel_coords_sorted = sorted(rel_coords)
+    signature: Tuple[Tuple[int, int], ...] = tuple(rel_coords_sorted)
+    return signature
+
+
+def assign_object_ids(components: List[Component]) -> Dict[Pixel, int]:
+    """
+    Given a list of Components, compute shape_signature for each,
+    group components with the same (color, shape_signature),
+    and assign an object_id (0,1,2,...) per group.
+
+    Args:
+        components: List of Component objects
+
+    Returns:
+        Dictionary mapping (r,c) -> object_id for all pixels in all components
+
+    Notes:
+        - Object classes are defined by (color, shape_signature) pairs
+        - Two components with the same shape but different colors get different object_ids
+        - All components in the same object class share one object_id
+        - Background pixels (not in any component) are not in the returned dict
+
+    Example:
+        >>> # Two identical 2x2 squares of color 1 at different positions
+        >>> # will get the same object_id
+        >>> comps = connected_components_by_color(grid)
+        >>> obj_ids = assign_object_ids(comps)
+        >>> # obj_ids maps each pixel to its object class
+    """
+    # First, ensure all components have shape_signature computed
+    for comp in components:
+        if comp.shape_signature is None:
+            comp.shape_signature = compute_shape_signature(comp)
+
+    # Group by (color, shape_signature)
+    groups: Dict[Tuple[int, Tuple[Tuple[int, int], ...]], List[Component]] = {}
+    for comp in components:
+        key = (comp.color, comp.shape_signature)
+        groups.setdefault(key, []).append(comp)
+
+    # Assign object_ids
+    pixel_to_object_id: Dict[Pixel, int] = {}
+    current_object_id = 0
+    for key, comps_in_group in groups.items():
+        # all comps in this group share the same object_id
+        for comp in comps_in_group:
+            for (r, c) in comp.pixels:
+                pixel_to_object_id[(r, c)] = current_object_id
+        current_object_id += 1
+
+    return pixel_to_object_id
+
+
 if __name__ == "__main__":
-    # Simple test grid with 2 colors and a few blobs
+    # Simple grid with two identical shapes in different places
     grid = np.array([
-        [0, 0, 1, 1],
-        [0, 2, 2, 1],
-        [0, 0, 2, 1],
-        [3, 3, 3, 1],
+        [0, 1, 1, 0, 0],
+        [0, 1, 1, 0, 0],
+        [0, 0, 0, 2, 2],
+        [0, 0, 0, 2, 2],
     ], dtype=int)
 
     from src.core.grid_types import print_grid
@@ -230,6 +320,16 @@ if __name__ == "__main__":
     print_grid(grid)
 
     comps = connected_components_by_color(grid)
-    print("\nComponents found:")
+    print("\nComponents:")
     for comp in comps:
-        print(f"  id={comp.id}, color={comp.color}, size={comp.size}, bbox={comp.bbox}")
+        comp.shape_signature = compute_shape_signature(comp)
+        print(f"  id={comp.id}, color={comp.color}, size={comp.size}, bbox={comp.bbox}, shape_sig={comp.shape_signature}")
+
+    pixel_to_obj = assign_object_ids(comps)
+    print("\nPixel to object_id:")
+    # print object_id map in grid form for clarity
+    H, W = grid.shape
+    obj_grid = -np.ones_like(grid)
+    for (r, c), oid in pixel_to_obj.items():
+        obj_grid[r, c] = oid
+    print(obj_grid)
