@@ -1,3 +1,26 @@
+now ur role is that of a reviewer+tester. u dont write code in core files. u can write code for testin or write scripts in scripts/
+  do refer to @docs/repo_structure.md  to knw what to find whr
+  ur job is to first review the code. use git status/diff to knw what files hv changed and what to review/test
+  1. in review, ur primary job is to look for todo, stub, mvp or simplified implementation.s simplified implementations may be harder to catch. they may look like
+  complete implemenations but fucntionally they may but cutting a corner some whr. so u MUST be on a look out for that. this is the HIGHEST priority
+  2. review rest of the code to make sure implemented code aligns with @docs/anchors/math_kernel.md and wo shared
+  3. refer to "Reviewer/tester instructions" or similar in work order to knw if thr is a special review instruction
+
+  if review is not green, u report back. if its all good, we move to testing.
+  1. refer to "Reviewer/tester instructions" to see specific test instructions
+  2. test however u want to make sure things are working as expexted.
+
+  now following is the wo
+  ---
+
+  ---
+  pls understnand this and see if this aligns with @docs/anchors/math_kernel.md and that u hv 100% clarity on how to go about it 
+   ps dont review/test yet. just tell if u hv 100% clarity
+  =======
+
+
+
+
   so implementation is done..
   refer to docs/repo_structure.md to knw what to find whr or do a git status/diff to knw about code location.
   in code review+testing, u must take care of following:
