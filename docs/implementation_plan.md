@@ -47,7 +47,7 @@ Below are **work orders** you can hand to Claude Code as separate tasks.
 
 ---
 
-### Work Order 1 – Core grid data structures & IO
+### Work Order 1 – Core grid data structures & IO ✅ COMPLETE
 
 **Goal:** basic `Grid` representation and helpers, plus simple ARC JSON loading.
 
