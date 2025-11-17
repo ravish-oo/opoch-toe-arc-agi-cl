@@ -128,6 +128,29 @@ def load_arc_training_solutions(path: Path) -> Dict[str, List[Grid]]:
     return solutions
 
 
+def load_arc_task_ids(challenges_path: Path) -> List[str]:
+    """
+    Load all task IDs from an ARC challenges JSON file.
+
+    Args:
+        path: Path to arc-agi_training_challenges.json or similar
+
+    Returns:
+        List of task_id strings (sorted for deterministic order)
+
+    Example:
+        >>> path = Path("data/arc-agi_training_challenges.json")
+        >>> task_ids = load_arc_task_ids(path)
+        >>> len(task_ids)
+        400
+    """
+    with open(challenges_path, 'r') as f:
+        data = json.load(f)
+
+    # ARC challenges JSON is a dict mapping task_id -> task_data
+    return sorted(data.keys())
+
+
 if __name__ == "__main__":
     # Self-test: load and inspect first task
     from src.core.grid_types import print_grid
