@@ -50,7 +50,7 @@ Refer to docs/WOs/M1/M1.md  for work orders and docs/WOs/M1/ to see detailed wor
 
 High-level Work Orders
 
-### **WO-M2.1 – y-indexing helpers**
+### **WO-M2.1 – y-indexing helpers** ✅ COMPLETE
 
 **File:** `src/constraints/indexing.py`
 **Goal:** define a clean way to map `(pixel, color)` to indices in the y vector (and back).
