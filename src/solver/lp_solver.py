@@ -56,7 +56,7 @@ def solve_constraints_for_grid(
     num_pixels: int,
     num_colors: int,
     objective: str = "min_sum"
-) -> np.ndarray:
+) -> tuple[np.ndarray, str]:
     """
     Build and solve an ILP for a single grid.
 
@@ -75,8 +75,10 @@ def solve_constraints_for_grid(
             - "none":    zero objective (feasibility only)
 
     Returns:
-        y: numpy array of shape (num_pixels, num_colors), with entries 0 or 1.
-           Each row is one-hot (exactly one 1 per pixel).
+        Tuple of (y, solver_status):
+          - y: numpy array of shape (num_pixels, num_colors), with entries 0 or 1.
+               Each row is one-hot (exactly one 1 per pixel).
+          - solver_status: string describing solver result (e.g. "Optimal", "Infeasible")
 
     Raises:
         InfeasibleModelError: if the model is infeasible or no optimal solution is found.
@@ -84,11 +86,13 @@ def solve_constraints_for_grid(
     Example:
         >>> builder = ConstraintBuilder()
         >>> builder.fix_pixel_color(0, 3, C=10)  # pixel 0 → color 3
-        >>> y_sol = solve_constraints_for_grid(builder, num_pixels=1, num_colors=10)
+        >>> y_sol, status = solve_constraints_for_grid(builder, num_pixels=1, num_colors=10)
         >>> y_sol.shape
         (1, 10)
         >>> y_sol[0, 3]
         1
+        >>> status
+        'Optimal'
     """
     # 1. Create model
     prob = pulp.LpProblem("arc_ilp", pulp.LpMinimize)
@@ -137,10 +141,13 @@ def solve_constraints_for_grid(
     # 6. Solve using pulp's CBC solver
     status = prob.solve(pulp.PULP_CBC_CMD(msg=False))
 
+    # Extract status string for diagnostics
+    solver_status_str = pulp.LpStatus[status]
+
     # Check if optimal solution found
-    if pulp.LpStatus[status] != "Optimal":
+    if solver_status_str != "Optimal":
         raise InfeasibleModelError(
-            f"Solver status: {pulp.LpStatus[status]}. "
+            f"Solver status: {solver_status_str}. "
             f"Model may be infeasible or unbounded."
         )
 
@@ -162,8 +169,8 @@ def solve_constraints_for_grid(
             f"Row sums: {row_sums[bad_pixels]}"
         )
 
-    # 9. Return solution
-    return y_sol
+    # 9. Return solution and solver status
+    return y_sol, solver_status_str
 
 
 if __name__ == "__main__":
@@ -177,15 +184,17 @@ if __name__ == "__main__":
     builder = ConstraintBuilder()
     builder.fix_pixel_color(p_idx=0, color=2, C=5)
 
-    y_sol = solve_constraints_for_grid(builder, num_pixels=1, num_colors=5)
+    y_sol, solver_status = solve_constraints_for_grid(builder, num_pixels=1, num_colors=5)
 
     print(f"Solution shape: {y_sol.shape}")
     print(f"Solution: {y_sol}")
+    print(f"Solver status: {solver_status}")
     print(f"Expected: [[0 0 1 0 0]]")
 
     # Verify
     expected = np.array([[0, 0, 1, 0, 0]])
     assert np.array_equal(y_sol, expected), f"Expected {expected}, got {y_sol}"
+    assert solver_status == "Optimal", f"Expected 'Optimal', got {solver_status}"
 
     print("\n✓ lp_solver.py self-test passed.")
     print("=" * 70)

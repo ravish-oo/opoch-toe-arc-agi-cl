@@ -8,12 +8,15 @@ the constraint-based approach:
   3. Apply schema instances to generate constraints (M3)
   4. Solve LP/ILP per example (M4.1)
   5. Decode y → grids (M4.2)
+  6. Return diagnostics for Pi-agent debugging (M5)
 
 This is the complete math kernel pipeline from the spec.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from src.core.grid_types import Grid
 from src.schemas.context import load_arc_task, build_task_context_from_raw, TaskContext
@@ -22,6 +25,207 @@ from src.schemas.dispatch import apply_schema_instance
 from src.catalog.types import TaskLawConfig
 from src.solver.lp_solver import solve_constraints_for_grid, InfeasibleModelError, TaskSolveError
 from src.solver.decoding import y_to_grid
+from src.runners.results import SolveDiagnostics, compute_train_mismatches
+
+
+def solve_arc_task_with_diagnostics(
+    task_id: str,
+    law_config: TaskLawConfig,
+    use_training_labels: bool = False,
+    challenges_path: Path | None = None,
+) -> Tuple[Dict[str, List[Grid]], SolveDiagnostics]:
+    """
+    Solve an ARC task and return both outputs and comprehensive diagnostics.
+
+    This is the Pi-agent-friendly entrypoint that returns rich diagnostics about
+    the solve attempt, including solver status, constraint counts, and detailed
+    mismatch information for training examples.
+
+    Args:
+        task_id: ARC task identifier from challenges JSON
+        law_config: TaskLawConfig with schema instances to apply
+        use_training_labels: If True, compare predicted train outputs with
+                            ground truth and populate mismatch information
+        challenges_path: Optional path to challenges JSON (defaults to training set)
+
+    Returns:
+        Tuple of (outputs, diagnostics):
+          - outputs: {
+              "train": [Grid, ...],  # predicted train outputs
+              "test": [Grid, ...]    # predicted test outputs
+            }
+          - diagnostics: SolveDiagnostics with:
+              - status: "ok" | "infeasible" | "mismatch" | "error"
+              - solver_status: PuLP status string
+              - num_constraints, num_variables
+              - schema_ids_used
+              - train_mismatches (if use_training_labels=True)
+              - error_message (if status="error")
+
+    Example:
+        >>> config = TaskLawConfig(schema_instances=[...])
+        >>> outputs, diag = solve_arc_task_with_diagnostics(
+        ...     "00576224", config, use_training_labels=True
+        ... )
+        >>> if diag.status == "mismatch":
+        ...     print(f"Mismatches: {diag.train_mismatches}")
+    """
+    # Default to training challenges if not specified
+    if challenges_path is None:
+        challenges_path = Path("data/arc-agi_training_challenges.json")
+
+    # Initialize diagnostics tracking
+    train_outputs_pred: List[Grid] = []
+    test_outputs_pred: List[Grid] = []
+    total_constraints = 0
+    total_variables = 0
+    schema_ids_used = [inst.family_id for inst in law_config.schema_instances]
+    status = "ok"
+    solver_status_str = "Unknown"
+    train_mismatches = []
+    error_message: str | None = None
+
+    try:
+        # 1. Load task and build context
+        task_data = load_arc_task(task_id, challenges_path)
+        ctx: TaskContext = build_task_context_from_raw(task_data)
+
+        # 2. Solve for each TRAIN example
+        for i, ex in enumerate(ctx.train_examples):
+            # Determine output dimensions
+            H_out = ex.output_H if ex.output_H is not None else ex.input_H
+            W_out = ex.output_W if ex.output_W is not None else ex.input_W
+            num_pixels = H_out * W_out
+            num_colors = ctx.C
+
+            # Build constraints for this example
+            builder = ConstraintBuilder()
+            for schema_inst in law_config.schema_instances:
+                apply_schema_instance(
+                    family_id=schema_inst.family_id,
+                    schema_params=schema_inst.params,
+                    task_context=ctx,
+                    builder=builder,
+                    example_type="train",
+                    example_index=i,
+                )
+
+            # Track constraint/variable counts
+            total_constraints += len(builder.constraints)
+            total_variables += num_pixels * num_colors
+
+            # Solve ILP
+            y, solver_status_single = solve_constraints_for_grid(
+                builder=builder,
+                num_pixels=num_pixels,
+                num_colors=num_colors,
+                objective="min_sum"
+            )
+            solver_status_str = solver_status_single  # Keep last status
+
+            # Decode to grid
+            grid_pred = y_to_grid(y, H_out, W_out, num_colors)
+            train_outputs_pred.append(grid_pred)
+
+        # 3. Solve for each TEST example
+        for i, ex in enumerate(ctx.test_examples):
+            # Determine output dimensions
+            if ex.output_H is not None:
+                H_out, W_out = ex.output_H, ex.output_W
+            else:
+                # Fallback to input dimensions (works for geometry-preserving schemas)
+                H_out, W_out = ex.input_H, ex.input_W
+
+            num_pixels = H_out * W_out
+            num_colors = ctx.C
+
+            # Build constraints for this example
+            builder = ConstraintBuilder()
+            for schema_inst in law_config.schema_instances:
+                apply_schema_instance(
+                    family_id=schema_inst.family_id,
+                    schema_params=schema_inst.params,
+                    task_context=ctx,
+                    builder=builder,
+                    example_type="test",
+                    example_index=i,
+                )
+
+            # Track constraint/variable counts
+            total_constraints += len(builder.constraints)
+            total_variables += num_pixels * num_colors
+
+            # Solve ILP
+            y, solver_status_single = solve_constraints_for_grid(
+                builder=builder,
+                num_pixels=num_pixels,
+                num_colors=num_colors,
+                objective="min_sum"
+            )
+            solver_status_str = solver_status_single
+
+            # Decode to grid
+            grid_pred = y_to_grid(y, H_out, W_out, num_colors)
+            test_outputs_pred.append(grid_pred)
+
+        # 4. Compare with training labels if requested
+        if use_training_labels:
+            # Extract ground truth from context
+            true_train_outputs = [
+                ex.output_grid for ex in ctx.train_examples
+                if ex.output_grid is not None
+            ]
+
+            # Compute mismatches
+            train_mismatches = compute_train_mismatches(
+                true_train_outputs,
+                train_outputs_pred
+            )
+
+            # Set status based on mismatches
+            if len(train_mismatches) > 0:
+                status = "mismatch"
+            else:
+                status = "ok"
+        else:
+            status = "ok"
+
+    except InfeasibleModelError as e:
+        # Solver couldn't find a solution
+        status = "infeasible"
+        solver_status_str = str(e)
+        error_message = f"ILP infeasible: {e}"
+
+    except TaskSolveError as e:
+        # Task-level solve error (wraps InfeasibleModelError with context)
+        status = "infeasible"
+        error_message = f"Task solve error: {e.example_type}[{e.example_index}]: {e.original_error}"
+
+    except Exception as e:
+        # Unexpected error
+        status = "error"
+        error_message = f"Unexpected error: {type(e).__name__}: {e}"
+
+    # 5. Construct diagnostics
+    diagnostics = SolveDiagnostics(
+        task_id=task_id,
+        law_config=law_config,
+        status=status,
+        solver_status=solver_status_str,
+        num_constraints=total_constraints,
+        num_variables=total_variables,
+        schema_ids_used=schema_ids_used,
+        train_mismatches=train_mismatches,
+        error_message=error_message,
+    )
+
+    # 6. Return outputs and diagnostics
+    outputs = {
+        "train": train_outputs_pred,
+        "test": test_outputs_pred,
+    }
+
+    return outputs, diagnostics
 
 
 def solve_arc_task(
@@ -32,15 +236,9 @@ def solve_arc_task(
     """
     Solve an ARC-AGI task using a given law configuration.
 
-    This implements the full math kernel pipeline:
-      1. Load task from JSON
-      2. Build TaskContext with all φ features
-      3. For each example (train and test):
-         a. Create ConstraintBuilder
-         b. Apply all schema instances
-         c. Solve ILP to get y
-         d. Decode y → grid
-      4. Return predicted grids
+    This is a thin wrapper around solve_arc_task_with_diagnostics that
+    returns only the predicted grids (for backward compatibility).
+    For Pi-agent integration, use solve_arc_task_with_diagnostics directly.
 
     Args:
         task_id: ARC task identifier
@@ -66,103 +264,18 @@ def solve_arc_task(
         >>> result["train_outputs_pred"]
         [<Grid>, <Grid>]
     """
-    # 1. Load task
-    if challenges_path is None:
-        challenges_path = Path("data/arc-agi_training_challenges.json")
+    # Call new diagnostics version and extract just the outputs
+    outputs, _ = solve_arc_task_with_diagnostics(
+        task_id=task_id,
+        law_config=law_config,
+        use_training_labels=False,
+        challenges_path=challenges_path,
+    )
 
-    task_data = load_arc_task(task_id, challenges_path)
-
-    # 2. Build TaskContext
-    ctx: TaskContext = build_task_context_from_raw(task_data)
-
-    # 3. Prepare result containers
-    train_outputs_pred: List[Grid] = []
-    test_outputs_pred: List[Grid] = []
-
-    # 4. Solve for each TRAIN example
-    for i, ex in enumerate(ctx.train_examples):
-        # Output dimensions from ground truth
-        H_out = ex.output_H if ex.output_H is not None else ex.input_H
-        W_out = ex.output_W if ex.output_W is not None else ex.input_W
-        num_pixels = H_out * W_out
-        num_colors = ctx.C
-
-        # Create builder for this example
-        builder = ConstraintBuilder()
-
-        # Apply all schema instances
-        for schema_instance in law_config.schema_instances:
-            apply_schema_instance(
-                family_id=schema_instance.family_id,
-                schema_params=schema_instance.params,
-                task_context=ctx,
-                builder=builder,
-                example_type="train",
-                example_index=i
-            )
-
-        # Solve ILP for this example
-        try:
-            y = solve_constraints_for_grid(
-                builder,
-                num_pixels=num_pixels,
-                num_colors=num_colors,
-                objective="min_sum"
-            )
-        except InfeasibleModelError as e:
-            raise TaskSolveError(task_id, "train", i, e)
-
-        # Decode to grid
-        grid_pred = y_to_grid(y, H_out, W_out, num_colors)
-        train_outputs_pred.append(grid_pred)
-
-    # 5. Solve for each TEST example
-    for i, ex in enumerate(ctx.test_examples):
-        # Output dimensions: from schema params (for S6/S7) or fallback to input dims
-        # For geometry-preserving schemas (S1-S5, S8-S11), input dims = output dims
-        # For S6/S7, law_config must specify output dimensions in params
-        if ex.output_H is not None:
-            H_out, W_out = ex.output_H, ex.output_W
-        else:
-            # Fallback to input dimensions (works for geometry-preserving)
-            H_out, W_out = ex.input_H, ex.input_W
-
-        num_pixels = H_out * W_out
-        num_colors = ctx.C
-
-        # Create builder for this example
-        builder = ConstraintBuilder()
-
-        # Apply all schema instances
-        for schema_instance in law_config.schema_instances:
-            apply_schema_instance(
-                family_id=schema_instance.family_id,
-                schema_params=schema_instance.params,
-                task_context=ctx,
-                builder=builder,
-                example_type="test",
-                example_index=i
-            )
-
-        # Solve ILP for this example
-        try:
-            y = solve_constraints_for_grid(
-                builder,
-                num_pixels=num_pixels,
-                num_colors=num_colors,
-                objective="min_sum"
-            )
-        except InfeasibleModelError as e:
-            raise TaskSolveError(task_id, "test", i, e)
-
-        # Decode to grid
-        grid_pred = y_to_grid(y, H_out, W_out, num_colors)
-        test_outputs_pred.append(grid_pred)
-
-    # 6. Return results
+    # Convert to old output format for backward compatibility
     return {
-        "train_outputs_pred": train_outputs_pred,
-        "test_outputs_pred": test_outputs_pred,
+        "train_outputs_pred": outputs["train"],
+        "test_outputs_pred": outputs["test"],
     }
 
 

@@ -71,7 +71,7 @@ M5 is where we make the **kernel “talk”** — fail-closed, with rich, struct
 We’re done with the math engine; now we’re building the **interface and diagnostics layer** that a Pi-agent will sit on.
 
 High-level Work Orders
-### 🔹 WO-M5.1 – Result & diagnostics struct
+### 🔹 WO-M5.1 – Result & diagnostics struct ✅ COMPLETE
 
 **Goal:** define a single, structured object that captures *everything* about a solve attempt, especially in failure.
 
@@ -106,7 +106,7 @@ High-level Work Orders
 
 ---
 
-### 🔹 WO-M5.2 – Extend kernel to return diagnostics, not just grids
+### 🔹 WO-M5.2 – Extend kernel to return diagnostics, not just grids ✅ COMPLETE
 
 **Goal:** make `solve_arc_task` produce **diagnostics + outputs** in a way that is fail-closed and Pi-agent-friendly.
 
@@ -244,6 +244,85 @@ This layer is where we later plug “Pi-agent as a prompt/program” without tou
 
 This is mostly sugar, but it’s important for your “observer is observed” workflow: we want the system itself to provide introspectable state.
 
+---
+
+## 🔹 WO-M5.X – Enrich diagnostics with per-schema stats & example summaries
+
+**Goal:** give the Pi-agent more structured evidence by:
+
+1. Tracking how many constraints each schema family contributed.
+2. Providing a compact summary of each training/test example (shapes, components).
+
+**Files touched (high-level):**
+
+* `src/runners/results.py`
+* `src/schemas/dispatch.py`
+* `src/schemas/context.py` (or a new `summaries.py`)
+* `src/runners/kernel.py`
+
+---
+
+### Part A – Per-schema constraint counts
+
+**Idea:** each time we apply a schema instance, record how many constraints it added.
+
+**High-level scope:**
+
+* Extend `SolveDiagnostics` with:
+
+  ```python
+  schema_constraint_counts: Dict[str, int]
+  ```
+
+* In `apply_schema_instance(...)` (in `dispatch.py`):
+
+  * Capture `before = len(builder.constraints)`.
+  * Call the `build_Sk_constraints(...)` function.
+  * Capture `after = len(builder.constraints)`.
+  * Increment `schema_constraint_counts[family_id] += (after - before)`.
+
+* Ensure `kernel.solve_arc_task_with_diagnostics(...)` passes this dict into `SolveDiagnostics`.
+
+**Outcome:** Pi-agent can see which schemas were *actually active* and how heavily they were used.
+
+---
+
+### Part B – Example-level summary (compact)
+
+**Idea:** each example (train/test) gets a small digest: shape + component stats.
+
+**High-level scope:**
+
+* Define an `ExampleSummary` dataclass, e.g. in `results.py` or a new `summaries.py`:
+
+  ```python
+  @dataclass
+  class ExampleSummary:
+      input_shape: tuple[int, int]
+      output_shape: Optional[tuple[int, int]]  # None for test inputs
+      components_per_color: Dict[int, int]     # color -> count of components
+  ```
+
+* Extend `SolveDiagnostics` with:
+
+  ```python
+  example_summaries: List[ExampleSummary]
+  ```
+
+* In `kernel.solve_arc_task_with_diagnostics(...)`:
+
+  * For each ExampleContext in `TaskContext.train_examples` and `test_examples`:
+
+    * Compute `input_shape`, `output_shape` from grids.
+    * Use `components` to build `components_per_color` (count map).
+    * Append an `ExampleSummary` to a list.
+  * Pass that list into `SolveDiagnostics`.
+
+**Outcome:** Pi-agent can quickly see:
+
+* per-example sizes,
+* whether output shape matches expectation,
+* how many components of each color exist.
 ---
 
 ### How this ties together
