@@ -9,8 +9,8 @@ now ur role is that of implemnter.
 ps the code in wo is just a sketch or for illustration only. 
   =======
 
-perfect.. so i hv cleaned up and rearragend content in implementation plan. i hv added high level work orders in it for M3. so pls read @docs/anchors/math_kernel.md
-    first and then see if work orders of milesteone 2 in @docs/implementation_plan.md align perfectly with math spec and that we didnt miss something that was suposed to
+perfect.. so i hv cleaned up and rearragend content in implementation plan. i hv added high level work orders in it for M4. so pls read @docs/anchors/math_kernel.md
+    first and then see if work orders of milesteone 4 in @docs/implementation_plan.md align perfectly with math spec and that we didnt miss something that was suposed to
     be covered
 
 
