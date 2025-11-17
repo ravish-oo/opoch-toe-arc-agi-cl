@@ -122,7 +122,7 @@ Later, the runner will precompute this once per task and pass it into each build
 
 ---
 
-### **WO-M3.2 – Implement S3 + S4 (bands/stripes + periodic residue coloring)**
+### **WO-M3.2 – Implement S3 + S4 (bands/stripes + periodic residue coloring)** ✅ COMPLETE
 
 **Files:**
 
@@ -148,7 +148,7 @@ Wire S3, S4 into `dispatch.BUILDERS`.
 
 ---
 
-### **WO-M3.3 – Implement S5 + S11 (template stamping & local codebook)**
+### **WO-M3.3 – Implement S5 + S11 (template stamping & local codebook)** ✅ COMPLETE
 
 **Files:**
 

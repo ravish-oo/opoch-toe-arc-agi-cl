@@ -134,9 +134,14 @@ SCHEMA_FAMILIES: Dict[str, SchemaFamily] = {
             "Handles single object extraction and focus tasks."
         ),
         parameter_spec={
-            "selection_rule": "str"  # e.g. 'largest_nonzero_component', 'topmost_object'
+            "example_type": "str",                  # "train" | "test"
+            "example_index": "int",                 # which example
+            "output_height": "int",                 # output grid height
+            "output_width": "int",                  # output grid width
+            "background_color": "int",              # color for unmapped pixels
+            "out_to_in": "dict[str,str]"            # output coords -> input coords mapping
         },
-        required_features=["components", "object_roles"],
+        required_features=["input_grid"],
         builder_name="build_S6_constraints"
     ),
 
@@ -149,10 +154,13 @@ SCHEMA_FAMILIES: Dict[str, SchemaFamily] = {
             "Compresses large regions into summary matrices."
         ),
         parameter_spec={
-            "region_partition_rule": "str",    # how to block-partition or band-partition
-            "summary_rule": "str"              # e.g. 'unique_nonzero_color', 'most_frequent_color'
+            "example_type": "str",                  # "train" | "test"
+            "example_index": "int",                 # which example
+            "output_height": "int",                 # output grid height
+            "output_width": "int",                  # output grid width
+            "summary_colors": "dict[str,int]"       # output coords -> summary color
         },
-        required_features=["coords_bands", "components"],
+        required_features=[],
         builder_name="build_S7_constraints"
     ),
 

@@ -25,55 +25,15 @@ from src.schemas.s2_component_recolor import build_S2_constraints
 from src.schemas.s3_bands import build_S3_constraints
 from src.schemas.s4_residue_color import build_S4_constraints
 from src.schemas.s5_template_stamping import build_S5_constraints
+from src.schemas.s6_crop_roi import build_S6_constraints
+from src.schemas.s7_aggregation import build_S7_constraints
 from src.schemas.s11_local_codebook import build_S11_constraints
 
 
 # =============================================================================
-# S1-S5 and S11 are implemented in separate modules (M3.1-M3.3)
-# S6-S10 remain as stubs below (to be implemented in M3.4+)
+# S1-S7 and S11 are implemented in separate modules (M3.1-M3.4)
+# S8-S10 remain as stubs below (to be implemented in M3.5+)
 # =============================================================================
-
-
-def build_S6_constraints(
-    task_context: TaskContext,
-    schema_params: Dict[str, Any],
-    builder: ConstraintBuilder
-) -> None:
-    """
-    Add constraints for schema S6 (Cropping to ROI / dominant object).
-
-    In M3, this will constrain output to be a crop of selected bbox.
-
-    Args:
-        task_context: TaskContext with all φ features and grids
-        schema_params: Parameters for this schema instance
-        builder: ConstraintBuilder to add constraints to
-
-    Raises:
-        NotImplementedError: M2 stub, implementation in M3
-    """
-    raise NotImplementedError("build_S6_constraints is not implemented yet (M3).")
-
-
-def build_S7_constraints(
-    task_context: TaskContext,
-    schema_params: Dict[str, Any],
-    builder: ConstraintBuilder
-) -> None:
-    """
-    Add constraints for schema S7 (Aggregation / summary grid).
-
-    In M3, this will summarize macro-cells into smaller output grid.
-
-    Args:
-        task_context: TaskContext with all φ features and grids
-        schema_params: Parameters for this schema instance
-        builder: ConstraintBuilder to add constraints to
-
-    Raises:
-        NotImplementedError: M2 stub, implementation in M3
-    """
-    raise NotImplementedError("build_S7_constraints is not implemented yet (M3).")
 
 
 def build_S8_constraints(
@@ -218,8 +178,8 @@ if __name__ == "__main__":
     print("-" * 70)
 
     # Test that apply_schema_instance dispatches correctly
-    # S1-S5 and S11 are implemented (M3.1-M3.3), S6-S10 are stubs
-    # Test S6 (stub) raises NotImplementedError
+    # S1-S7 and S11 are implemented (M3.1-M3.4), S8-S10 are stubs
+    # Test S8 (stub) raises NotImplementedError
     import numpy as np
     from src.schemas.context import build_example_context
 
@@ -230,10 +190,10 @@ if __name__ == "__main__":
     cb = ConstraintBuilder()
 
     try:
-        apply_schema_instance("S6", dummy_params, dummy_context, cb)
-        raise AssertionError("Expected NotImplementedError for S6 builder stub")
+        apply_schema_instance("S8", dummy_params, dummy_context, cb)
+        raise AssertionError("Expected NotImplementedError for S8 builder stub")
     except NotImplementedError as e:
-        print(f"  ✓ Caught expected NotImplementedError for S6 (stub):")
+        print(f"  ✓ Caught expected NotImplementedError for S8 (stub):")
         print(f"    {e}")
 
     print("\n3. Testing unknown family_id:")

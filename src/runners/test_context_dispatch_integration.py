@@ -41,17 +41,17 @@ def test_context_dispatch_integration():
     print(f"   ✓ ConstraintBuilder created")
 
     # 3. Try to call dispatch with TaskContext
-    # S1-S5 and S11 are implemented, S6-S10 are stubs
-    # Test S6 (stub) raises NotImplementedError
+    # S1-S7 and S11 are implemented, S8-S10 are stubs
+    # Test S8 (stub) raises NotImplementedError
     print("\n3. Testing dispatch with TaskContext...")
     schema_params = {"dummy": "params"}
 
     try:
-        apply_schema_instance("S6", schema_params, ctx, builder)
+        apply_schema_instance("S8", schema_params, ctx, builder)
         print("   ✗ ERROR: Expected NotImplementedError")
         assert False, "Should have raised NotImplementedError"
     except NotImplementedError as e:
-        print(f"   ✓ Caught expected NotImplementedError from S6 (stub):")
+        print(f"   ✓ Caught expected NotImplementedError from S8 (stub):")
         print(f"     {e}")
 
     # 4. Verify TaskContext structure is accessible
@@ -395,6 +395,105 @@ def test_s11_builder():
     print(f"    (applied template to {pixels_with_hash} matching pixels)")
 
 
+def test_s6_builder():
+    """Test S6 builder with toy example."""
+    print("\n" + "=" * 70)
+    print("Testing S6 builder (Cropping to ROI)")
+    print("=" * 70)
+
+    import numpy as np
+    from src.schemas.context import build_example_context, TaskContext
+    from src.constraints.builder import ConstraintBuilder
+
+    # Create a 4x4 input grid
+    input_grid = np.array([
+        [0, 0, 0, 0],
+        [0, 1, 2, 0],
+        [0, 3, 4, 0],
+        [0, 0, 0, 0]
+    ], dtype=int)
+
+    output_grid = None  # S6 doesn't need output for context building
+
+    ex = build_example_context(input_grid, output_grid)
+    ctx = TaskContext(train_examples=[ex], test_examples=[], C=10)
+
+    # Crop central 2x2 square
+    params = {
+        "example_type": "train",
+        "example_index": 0,
+        "output_height": 2,
+        "output_width": 2,
+        "background_color": 0,
+        "out_to_in": {
+            "(0,0)": "(1,1)",  # output (0,0) <- input (1,1) = 1
+            "(0,1)": "(1,2)",  # output (0,1) <- input (1,2) = 2
+            "(1,0)": "(2,1)",  # output (1,0) <- input (2,1) = 3
+            "(1,1)": "(2,2)"   # output (1,1) <- input (2,2) = 4
+        }
+    }
+
+    builder = ConstraintBuilder()
+    apply_schema_instance("S6", params, ctx, builder)
+
+    # Should have 4 constraints (2x2 output)
+    expected = 4
+    assert len(builder.constraints) == expected, \
+        f"Expected {expected} constraints, got {len(builder.constraints)}"
+
+    print(f"  ✓ S6 added {len(builder.constraints)} crop constraints")
+    print(f"    (cropped 2x2 from 4x4 input)")
+
+
+def test_s7_builder():
+    """Test S7 builder with toy example."""
+    print("\n" + "=" * 70)
+    print("Testing S7 builder (Aggregation / summary grid)")
+    print("=" * 70)
+
+    import numpy as np
+    from src.schemas.context import build_example_context, TaskContext
+    from src.constraints.builder import ConstraintBuilder
+
+    # Create a larger input grid (doesn't matter for S7, only summary matters)
+    input_grid = np.array([
+        [1, 1, 2, 2],
+        [1, 1, 2, 2],
+        [3, 3, 4, 4],
+        [3, 3, 4, 4]
+    ], dtype=int)
+
+    output_grid = None
+
+    ex = build_example_context(input_grid, output_grid)
+    ctx = TaskContext(train_examples=[ex], test_examples=[], C=10)
+
+    # Create 2x2 summary grid
+    params = {
+        "example_type": "train",
+        "example_index": 0,
+        "output_height": 2,
+        "output_width": 2,
+        "summary_colors": {
+            "(0,0)": 1,  # Top-left block -> color 1
+            "(0,1)": 2,  # Top-right block -> color 2
+            "(1,0)": 3,  # Bottom-left block -> color 3
+            "(1,1)": 4   # Bottom-right block -> color 4
+        }
+    }
+
+    builder = ConstraintBuilder()
+    apply_schema_instance("S7", params, ctx, builder)
+
+    # Should have 4 constraints (2x2 summary)
+    expected = 4
+    assert len(builder.constraints) == expected, \
+        f"Expected {expected} constraints, got {len(builder.constraints)}"
+
+    print(f"  ✓ S7 added {len(builder.constraints)} summary constraints")
+    print(f"    (2x2 summary grid)")
+
+
 if __name__ == "__main__":
     test_context_dispatch_integration()
     test_s1_builder()
@@ -402,6 +501,8 @@ if __name__ == "__main__":
     test_s3_builder()
     test_s4_builder()
     test_s5_builder()
+    test_s6_builder()
+    test_s7_builder()
     test_s11_builder()
 
     print("\n" + "=" * 70)
@@ -417,5 +518,7 @@ if __name__ == "__main__":
     print("  - S3 builder works (Band / stripe laws)")
     print("  - S4 builder works (Residue-class coloring)")
     print("  - S5 builder works (Template stamping)")
+    print("  - S6 builder works (Cropping to ROI)")
+    print("  - S7 builder works (Aggregation / summary grid)")
     print("  - S11 builder works (Local neighborhood codebook)")
-    print("  - Ready for M3.4+ schema implementations!")
+    print("  - Ready for M3.5+ schema implementations!")
