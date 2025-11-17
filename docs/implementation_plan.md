@@ -46,166 +46,213 @@ Goal: a clean Python module (or few small modules) that exposes a set of **featu
 Refer to docs/WOs/M1/M1.md  for work orders and docs/WOs/M1/ to see detailed work orders 
 ---
 
-## M2 – Constraint representation & ConstraintBuilder 
+## M2 – indexing + ConstraintBuilder + SchemaFamily metadata + dispatch skeleton ✅ COMPLETE
 
-High-level Work Orders
-
-### **WO-M2.1 – y-indexing helpers** ✅ COMPLETE
-
-**File:** `src/constraints/indexing.py`
-**Goal:** define a clean way to map `(pixel, color)` to indices in the y vector (and back).
-
-**Scope:**
-
-* Define functions:
-
-  * `flatten_index(r: int, c: int, W: int) -> int`   (pixel index 0..N-1)
-  * `unflatten_index(p_idx: int, W: int) -> tuple[int,int]`
-  * `y_index(p_idx: int, color: int, C: int) -> int`  (0..N*C-1)
-  * `y_index_to_pc(idx: int, C: int, W: int) -> (p_idx, color)`
-* No solver, no constraints here — just pure indexing.
-* This module will be imported by `builder.py` and schema builders.
+High-level Work Orders in docs/WOs/M2/M2.md 
+for detailed WOs refer to docs/WOs/M2/
 
 ---
 
-### **WO-M2.2 – LinearConstraint & ConstraintBuilder core** ✅ COMPLETE
+## M3 – Schema builders S1–S11
+* **M3** = actually make S1–S11 *do something* using M1+M2.
 
-**File:** `src/constraints/builder.py`
-**Goal:** core objects to collect linear equations over y.
+### **WO-M3.0 – Define a TaskContext struct**
+
+**File:** `src/schemas/context.py`
+**Goal:** one coherent object we pass into every `build_Sk_constraints`, so they all see the same data.
 
 **Scope:**
 
-* Define:
+* Define a `TaskContext` dataclass with fields like:
 
   ```python
   @dataclass
-  class LinearConstraint:
-      indices: list[int]       # indices in y
-      coeffs:  list[float]
-      rhs:     float
+  class TaskContext:
+      grids: dict[str, Any]     # e.g. {"train_inputs": [...], "train_outputs": [...], "test_inputs": [...]}
+      H: int
+      W: int
+      C: int
+      components: list[Component]
+      object_ids: dict[Pixel, int]
+      sectors: dict[Pixel, dict]         # from object_roles
+      border_info: dict[Pixel, dict]
+      role_bits: dict[int, dict]
+      row_bands: dict[int, str]
+      col_bands: dict[int, str]
+      row_flags: dict[int, bool]
+      col_flags: dict[int, bool]
+      neighborhood_hashes: dict[Pixel, int]
+      # you can add fields incrementally as needed by S_k
   ```
 
-  ```python
-  @dataclass
-  class ConstraintBuilder:
-      constraints: list[LinearConstraint] = field(default_factory=list)
+* No logic, just an organized container built from M1 functions.
 
-      def add_eq(self, indices: list[int], coeffs: list[float], rhs: float): ...
-      def tie_pixel_colors(self, p_idx: int, q_idx: int, C: int): ...
-      def fix_pixel_color(self, p_idx: int, color: int, C: int): ...
-      def forbid_pixel_color(self, p_idx: int, color: int, C: int): ...
-  ```
-
-* Also a helper for **one-hot per pixel**:
-
-  ```python
-  def add_one_hot_constraints(builder: ConstraintBuilder, N: int, C: int): ...
-  ```
-
-* Use `src/constraints/indexing.py` for index math.
-
-This doesn’t know anything about S1–S11 yet; it’s just the generic constraint collector.
+Later, the runner will precompute this once per task and pass it into each builder.
 
 ---
 
-### **WO-M2.3 – SchemaFamily registry (metadata only)**
+### **WO-M3.1 – Implement S1 + S2 builders (copy/equality + component recolor)**
 
-**File:** `src/schemas/families.py`
-**Goal:** define the **law family** objects (S1–S11) and a registry that Pi-agents/tools can inspect.
+**Files:**
+
+* `src/schemas/s1_copy_tie.py`
+* `src/schemas/s2_component_recolor.py`
+
+**Goal:** get the two most basic schemas working end-to-end.
 
 **Scope:**
 
-* Define:
+* `build_S1_constraints(context: TaskContext, params: dict, builder: ConstraintBuilder)`
 
-  ```python
-  @dataclass
-  class SchemaFamily:
-      id: str                  # e.g. "S1"
-      name: str                # "Direct pixel color tie"
-      description: str
-      parameter_spec: dict     # e.g. {"feature_predicate": "str"}
-      required_features: list[str]  # e.g. ["components", "object_id"]
-      builder_name: str        # e.g. "build_S1_constraints"
-  ```
+  * Use features (e.g. coord/object_id) to find pixel pairs that should be tied.
+  * Call `builder.tie_pixel_colors(...)` using indexing helpers.
 
-* Define a dict:
+* `build_S2_constraints(context: TaskContext, params: dict, builder: ConstraintBuilder)`
 
-  ```python
-  SCHEMA_FAMILIES: dict[str, SchemaFamily] = {
-      "S1": SchemaFamily(...),
-      "S2": SchemaFamily(...),
-      ...
-      "S11": SchemaFamily(...)
-  }
-  ```
+  * Use `components` + `role_bits` etc. to find which components to recolor and how.
+  * For each pixel in those components, call `builder.fix_pixel_color(...)`.
 
-* For M2, **builder_name** can just be strings (no actual imports yet); we’ll implement the functions in the next milestone.
+**Also in this WO:**
 
-This file is for the Pi-agent and system to know **what kinds of laws exist** and what parameters they require.
+* Update `src/schemas/dispatch.py`:
+
+  * Import these builder functions.
+  * Replace stubs for S1, S2 in `BUILDERS`.
+* Update `SchemaFamily.builder_name` (in `families.py`) if needed to match the real function names.
 
 ---
 
-### **WO-M2.4 – Schema builder dispatch skeleton**
+### **WO-M3.2 – Implement S3 + S4 (bands/stripes + periodic residue coloring)**
 
-**File:** `src/schemas/dispatch.py`
-**Goal:** a small dispatcher that, given a law family id and params, calls the right builder function stub.
+**Files:**
+
+* `src/schemas/s3_bands.py`
+* `src/schemas/s4_residue_color.py`
+
+**Goal:** handle row/col band rules & modulo-based coloring.
 
 **Scope:**
 
-* Define stub signatures for builder functions:
+* `build_S3_constraints(...)`:
 
-  ```python
-  # These will be implemented in M3
-  def build_S1_constraints(...): ...
-  def build_S2_constraints(...): ...
-  # ...
-  def build_S11_constraints(...): ...
-  ```
+  * Use `row_bands`, `col_bands`, row/col nonzero flags, etc.
+  * Tie rows/cols with same band features using S1-style ties.
+  * Possibly add constraints for periodic patterns (tie (r,j) with (r,j+K)).
 
-* Define a mapping:
+* `build_S4_constraints(...)`:
 
-  ```python
-  BUILDERS = {
-      "S1": build_S1_constraints,
-      "S2": build_S2_constraints,
-      ...
-  }
-  ```
+  * Use coord features (`row_mod`, `col_mod`) to map residue → color.
+  * For each pixel, forbid all colors ≠ `h(residue)` with `builder.forbid_pixel_color(...)`.
 
-* Define a helper function:
-
-  ```python
-  def apply_schema_instance(
-      family_id: str,
-      params: dict,
-      task_context: dict,
-      builder: ConstraintBuilder
-  ):
-      """
-      Look up the builder for family_id, call it with params and task_context.
-      For now builder functions can be 'pass' or log not-implemented.
-      """
-  ```
-
-* `task_context` will later carry things like:
-
-  * grid(s),
-  * features (from φ),
-  * N, C, etc.
-
-For M2 we just need **structure**; actual constraint logic per S1–S11 comes in M3.
+Wire S3, S4 into `dispatch.BUILDERS`.
 
 ---
 
-That’s it for M2 at high level:
+### **WO-M3.3 – Implement S5 + S11 (template stamping & local codebook)**
 
-1. `indexing.py` – how y is indexed.
-2. `builder.py` – how constraints are stored and basic primitives to add them.
-3. `families.py` – registry of schema families S1–S11, metadata only.
-4. `dispatch.py` – mapping family id → builder stub, and a generic `apply_schema_instance` entrypoint.
+**Files:**
+
+* `src/schemas/s5_template_stamping.py`
+* `src/schemas/s11_local_codebook.py`
+
+**Goal:** handle “seed → template” and local-neighborhood codebook rules.
+
+**Scope:**
+
+* `build_S5_constraints(...)`:
+
+  * Use `neighborhood_hashes` + other features to identify **seed types**.
+  * From train outputs, derive a patch `P_t` per seed type.
+  * For each seed in test, stamp `P_t` by fixing colors in the appropriate offsets.
+
+* `build_S11_constraints(...)`:
+
+  * More general local codebook:
+
+    * For each 3×3 input hash H, learn corresponding 3×3 output pattern P(H) from train pairs.
+    * For all pixels with hash H, enforce P(H) via S5-style stamping.
+
+Wire S5, S11 into `dispatch.BUILDERS`.
 
 ---
 
+### **WO-M3.4 – Implement S6 + S7 (cropping & summary grids)**
+
+**Files:**
+
+* `src/schemas/s6_crop_roi.py`
+* `src/schemas/s7_aggregation.py`
+
+**Goal:** support crop-to-ROI and block-summary style tasks.
+
+**Scope:**
+
+* `build_S6_constraints(...)`:
+
+  * Use components/object roles to infer which bounding box to keep.
+  * Tie output pixels to that subregion of input via S1-like ties, others fixed to background.
+
+* `build_S7_constraints(...)`:
+
+  * Partition input into macro-cells (e.g. using simple blocks or bands).
+  * For each macro-cell, deduce a “summary color” from train outputs.
+  * For each summary cell, fix its color to that summary using `fix_pixel_color(...)`.
+
+Wire S6, S7 into `dispatch.BUILDERS`.
+
+---
+
+### **WO-M3.5 – Implement S8 + S9 + S10 (tiling, cross propagation, frame)**
+
+**Files:**
+
+* `src/schemas/s8_tiling.py`
+* `src/schemas/s9_cross_propagation.py`
+* `src/schemas/s10_frame_border.py`
+
+**Goal:** finish the remaining schema types for repetitive/tiled patterns, crosses, and frame vs interior.
+
+**Scope:**
+
+* `build_S8_constraints(...)`:
+
+  * Infer base tile and tiling region/stride from train outputs.
+  * Tie all tile positions to the base tile’s pattern (via S1-style equality constraints).
+
+* `build_S9_constraints(...)`:
+
+  * Identify cross centers by neighborhood hashes.
+  * For each seed, propagate along rows/cols until stopping condition, fixing colors accordingly.
+
+* `build_S10_constraints(...)`:
+
+  * Use `component_border_interior` features.
+  * For border pixels, forbid all colors except border color; same for interior.
+
+Wire S8, S9, S10 into `dispatch.BUILDERS`.
+
+---
+
+### **WO-M3.6 – Sanity test harness for schemas**
+
+**File:** `src/runners/test_schemas_smoke.py`
+
+**Goal:** minimal script to sanity check that each `build_Sk_constraints`:
+
+* runs without crashing,
+* adds some constraints,
+* can be fed to a dummy LP solver (or a mock) for small toy grids.
+
+**Scope:**
+
+* Hard-code 1–2 tiny toy grids for each S_k.
+* Build a minimal `TaskContext` using M1 operators.
+* Call each `build_Sk_constraints`.
+* Print number of constraints and maybe inspect a few.
+
+(No need to solve real ARC tasks yet; this is just a smoke test.)
+
+---
 ### How this ties together
 
 After M1 we have:
@@ -221,6 +268,9 @@ After M1 we have:
   * neighborhood hashes.
 
 This is φ(p) in code.
+
+* **M1** = φ + IO 
+* **M2** = indexing + ConstraintBuilder + SchemaFamily metadata + dispatch skeleton
 
 From there, we can:
 
