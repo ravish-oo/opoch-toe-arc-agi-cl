@@ -111,7 +111,7 @@ This addresses:
 
 ---
 
-### 🔹 WO-M4.2 – Solution decoding (y → Grid(s))
+### 🔹 WO-M4.2 – Solution decoding (y → Grid(s)) ✅ COMPLETE
 
 **File:** `src/solver/decoding.py`
 **Goal:** given the solved y (one-hot over colors), reconstruct output grid(s).

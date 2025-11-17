@@ -25,6 +25,32 @@ class InfeasibleModelError(Exception):
     pass
 
 
+class TaskSolveError(Exception):
+    """
+    Raised when solving an ARC task fails.
+
+    This wraps lower-level solver errors (like InfeasibleModelError) with
+    rich context about which task and example failed, for Pi-agent debugging.
+
+    Attributes:
+        task_id: ARC task identifier
+        example_type: "train" or "test"
+        example_index: Which example failed
+        original_error: The underlying exception
+    """
+    def __init__(self, task_id: str, example_type: str, example_index: int, original_error: Exception):
+        self.task_id = task_id
+        self.example_type = example_type
+        self.example_index = example_index
+        self.original_error = original_error
+
+        message = (
+            f"Failed to solve task '{task_id}', "
+            f"{example_type}[{example_index}]: {original_error}"
+        )
+        super().__init__(message)
+
+
 def solve_constraints_for_grid(
     builder: ConstraintBuilder,
     num_pixels: int,

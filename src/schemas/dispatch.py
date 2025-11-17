@@ -65,7 +65,9 @@ def apply_schema_instance(
     family_id: str,
     schema_params: Dict[str, Any],
     task_context: TaskContext,
-    builder: ConstraintBuilder
+    builder: ConstraintBuilder,
+    example_type: str = None,
+    example_index: int = None
 ) -> None:
     """
     Look up the builder function for the given family_id and apply it.
@@ -79,23 +81,31 @@ def apply_schema_instance(
         schema_params: Parameters for this schema instance
         task_context: TaskContext with all φ features and grids
         builder: ConstraintBuilder to accumulate constraints
+        example_type: "train" or "test" (optional, injected into params if provided)
+        example_index: Which example to constrain (optional, injected into params if provided)
 
     Raises:
         KeyError: If no builder is registered for the given family_id
-        NotImplementedError: If the builder function is still a stub (M2)
 
     Example:
         >>> builder = ConstraintBuilder()
-        >>> context = {"N": 12, "C": 10, "features": {...}}
         >>> params = {"K": 3, "residue_to_color": {0: 1, 1: 2, 2: 0}}
-        >>> apply_schema_instance("S4", params, context, builder)
-        # In M3, this will add S4 constraints to builder
+        >>> apply_schema_instance("S4", params, context, builder,
+        ...                       example_type="train", example_index=0)
     """
     if family_id not in BUILDERS:
         raise KeyError(f"No builder registered for schema family '{family_id}'")
 
+    # Inject example_type and example_index into params for backward compatibility
+    # with M3 builders that expect these in params
+    enriched_params = dict(schema_params)
+    if example_type is not None:
+        enriched_params["example_type"] = example_type
+    if example_index is not None:
+        enriched_params["example_index"] = example_index
+
     builder_fn = BUILDERS[family_id]
-    builder_fn(task_context, schema_params, builder)
+    builder_fn(task_context, enriched_params, builder)
 
 
 if __name__ == "__main__":
