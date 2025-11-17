@@ -91,7 +91,7 @@ Later, the runner will precompute this once per task and pass it into each build
 
 ---
 
-### **WO-M3.1 – Implement S1 + S2 builders (copy/equality + component recolor)** 
+### **WO-M3.1 – Implement S1 + S2 builders (copy/equality + component recolor)** ✅ COMPLETE
 
 **Files:**
 

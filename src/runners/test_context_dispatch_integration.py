@@ -40,16 +40,18 @@ def test_context_dispatch_integration():
     builder = ConstraintBuilder()
     print(f"   ✓ ConstraintBuilder created")
 
-    # 3. Try to call dispatch with TaskContext (will fail with NotImplementedError, which is expected)
+    # 3. Try to call dispatch with TaskContext
+    # S1/S2 are implemented, S3-S11 are stubs
+    # Test S3 (stub) raises NotImplementedError
     print("\n3. Testing dispatch with TaskContext...")
     schema_params = {"dummy": "params"}
 
     try:
-        apply_schema_instance("S1", schema_params, ctx, builder)
+        apply_schema_instance("S3", schema_params, ctx, builder)
         print("   ✗ ERROR: Expected NotImplementedError")
         assert False, "Should have raised NotImplementedError"
     except NotImplementedError as e:
-        print(f"   ✓ Caught expected NotImplementedError:")
+        print(f"   ✓ Caught expected NotImplementedError from S3 (stub):")
         print(f"     {e}")
 
     # 4. Verify TaskContext structure is accessible
@@ -91,13 +93,119 @@ def test_context_dispatch_integration():
     print("\n" + "=" * 70)
     print("✓ End-to-end integration test passed!")
     print("=" * 70)
+
+
+def test_s1_builder():
+    """Test S1 builder with toy example."""
+    print("\n" + "=" * 70)
+    print("Testing S1 builder (Direct pixel color tie)")
+    print("=" * 70)
+
+    import numpy as np
+    from src.schemas.context import build_example_context, TaskContext
+    from src.constraints.builder import ConstraintBuilder
+
+    # Create a simple 2x2 grid
+    input_grid = np.array([[1, 2], [3, 4]], dtype=int)
+    output_grid = np.array([[1, 1], [3, 3]], dtype=int)
+
+    ex = build_example_context(input_grid, output_grid)
+    ctx = TaskContext(train_examples=[ex], test_examples=[], C=5)
+
+    # Create params: tie (0,0) to (0,1) and (1,0) to (1,1)
+    params = {
+        "ties": [{
+            "example_type": "train",
+            "example_index": 0,
+            "pairs": [
+                ((0, 0), (0, 1)),  # tie top row
+                ((1, 0), (1, 1))   # tie bottom row
+            ]
+        }]
+    }
+
+    builder = ConstraintBuilder()
+    apply_schema_instance("S1", params, ctx, builder)
+
+    # Verify constraints were added
+    # 2 pairs × 5 colors = 10 constraints
+    expected = 2 * ctx.C
+    assert len(builder.constraints) == expected, \
+        f"Expected {expected} constraints, got {len(builder.constraints)}"
+
+    print(f"  ✓ S1 added {len(builder.constraints)} tie constraints")
+    print(f"    (2 pixel pairs × {ctx.C} colors = {expected})")
+
+
+def test_s2_builder():
+    """Test S2 builder with toy example."""
+    print("\n" + "=" * 70)
+    print("Testing S2 builder (Component-wise recolor)")
+    print("=" * 70)
+
+    import numpy as np
+    from src.schemas.context import build_example_context, TaskContext
+    from src.constraints.builder import ConstraintBuilder
+
+    # Create a 3x3 grid with components of different sizes
+    input_grid = np.array([
+        [0, 1, 0],
+        [1, 2, 1],
+        [0, 0, 0]
+    ], dtype=int)
+
+    output_grid = np.array([
+        [0, 3, 0],
+        [4, 2, 4],
+        [0, 0, 0]
+    ], dtype=int)
+
+    ex = build_example_context(input_grid, output_grid)
+    ctx = TaskContext(train_examples=[ex], test_examples=[], C=5)
+
+    print(f"  Components found: {len(ex.components)}")
+    color_1_comps = [c for c in ex.components if c.color == 1]
+    print(f"  Components with color 1: {len(color_1_comps)}")
+    for comp in color_1_comps:
+        print(f"    Component {comp.id}: size={comp.size}, pixels={comp.pixels}")
+
+    # Create params: recolor components of color 1 based on size
+    params = {
+        "example_type": "train",
+        "example_index": 0,
+        "input_color": 1,
+        "size_to_color": {
+            "1": 3,   # size 1 → color 3
+            "2": 4,   # size 2 → color 4
+            "else": 0
+        }
+    }
+
+    builder = ConstraintBuilder()
+    apply_schema_instance("S2", params, ctx, builder)
+
+    # Count total pixels in color-1 components
+    total_pixels = sum(c.size for c in color_1_comps)
+    assert len(builder.constraints) == total_pixels, \
+        f"Expected {total_pixels} constraints, got {len(builder.constraints)}"
+
+    print(f"  ✓ S2 added {len(builder.constraints)} fix constraints")
+    print(f"    (one per pixel in color-1 components)")
+
+
+if __name__ == "__main__":
+    test_context_dispatch_integration()
+    test_s1_builder()
+    test_s2_builder()
+
+    print("\n" + "=" * 70)
+    print("✓ All integration tests passed!")
+    print("=" * 70)
     print("\nSummary:")
     print("  - TaskContext successfully built from ARC task")
     print("  - TaskContext contains all φ features from M1")
     print("  - dispatch.apply_schema_instance accepts TaskContext")
     print("  - All builder functions have compatible signatures")
-    print("  - Ready for M3.1+ schema implementations!")
-
-
-if __name__ == "__main__":
-    test_context_dispatch_integration()
+    print("  - S1 builder works (Direct pixel color tie)")
+    print("  - S2 builder works (Component-wise recolor)")
+    print("  - Ready for M3.2+ schema implementations!")

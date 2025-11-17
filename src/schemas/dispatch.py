@@ -19,52 +19,15 @@ from typing import Callable, Dict, Any
 from src.constraints.builder import ConstraintBuilder
 from src.schemas.context import TaskContext
 
+# Import actual schema builders (M3.1+)
+from src.schemas.s1_copy_tie import build_S1_constraints
+from src.schemas.s2_component_recolor import build_S2_constraints
+
 
 # =============================================================================
-# Standard builder function signature (fixed for M2 and M3)
+# S1 and S2 are implemented in separate modules (M3.1)
+# S3-S11 remain as stubs below (to be implemented in M3.2+)
 # =============================================================================
-
-def build_S1_constraints(
-    task_context: TaskContext,
-    schema_params: Dict[str, Any],
-    builder: ConstraintBuilder
-) -> None:
-    """
-    Add constraints for schema S1 (Direct pixel color tie).
-
-    In M3, this will enforce equality of colors for feature-equivalent pixels.
-
-    Args:
-        task_context: TaskContext with all φ features and grids
-        schema_params: Parameters for this schema instance
-        builder: ConstraintBuilder to add constraints to
-
-    Raises:
-        NotImplementedError: M2 stub, implementation in M3
-    """
-    raise NotImplementedError("build_S1_constraints is not implemented yet (M3).")
-
-
-def build_S2_constraints(
-    task_context: TaskContext,
-    schema_params: Dict[str, Any],
-    builder: ConstraintBuilder
-) -> None:
-    """
-    Add constraints for schema S2 (Component-wise recolor map).
-
-    In M3, this will recolor components based on object class and size.
-
-    Args:
-        task_context: TaskContext with all φ features and grids
-        schema_params: Parameters for this schema instance
-        builder: ConstraintBuilder to add constraints to
-
-    Raises:
-        NotImplementedError: M2 stub, implementation in M3
-    """
-    raise NotImplementedError("build_S2_constraints is not implemented yet (M3).")
-
 
 def build_S3_constraints(
     task_context: TaskContext,
@@ -333,16 +296,23 @@ if __name__ == "__main__":
     print("\n2. Testing dispatch with stub builders:")
     print("-" * 70)
 
-    # Test that apply_schema_instance dispatches correctly and raises NotImplementedError
-    dummy_context: Dict[str, Any] = {}
+    # Test that apply_schema_instance dispatches correctly
+    # S1/S2 are implemented (M3.1), S3-S11 are stubs
+    # Test S3 (stub) raises NotImplementedError
+    import numpy as np
+    from src.schemas.context import build_example_context
+
+    dummy_grid = np.array([[0, 1], [2, 3]], dtype=int)
+    dummy_ex = build_example_context(dummy_grid, dummy_grid)
+    dummy_context = TaskContext(train_examples=[dummy_ex], test_examples=[], C=4)
     dummy_params: Dict[str, Any] = {}
     cb = ConstraintBuilder()
 
     try:
-        apply_schema_instance("S1", dummy_params, dummy_context, cb)
-        raise AssertionError("Expected NotImplementedError for S1 builder stub")
+        apply_schema_instance("S3", dummy_params, dummy_context, cb)
+        raise AssertionError("Expected NotImplementedError for S3 builder stub")
     except NotImplementedError as e:
-        print(f"  ✓ Caught expected NotImplementedError for S1:")
+        print(f"  ✓ Caught expected NotImplementedError for S3 (stub):")
         print(f"    {e}")
 
     print("\n3. Testing unknown family_id:")
