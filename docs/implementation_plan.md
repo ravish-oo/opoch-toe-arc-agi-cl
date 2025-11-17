@@ -68,7 +68,7 @@ High-level Work Orders
 
 ---
 
-### **WO-M2.2 – LinearConstraint & ConstraintBuilder core**
+### **WO-M2.2 – LinearConstraint & ConstraintBuilder core** ✅ COMPLETE
 
 **File:** `src/constraints/builder.py`
 **Goal:** core objects to collect linear equations over y.
