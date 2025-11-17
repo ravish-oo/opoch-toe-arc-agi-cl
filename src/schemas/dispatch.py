@@ -22,54 +22,14 @@ from src.schemas.context import TaskContext
 # Import actual schema builders (M3.1+)
 from src.schemas.s1_copy_tie import build_S1_constraints
 from src.schemas.s2_component_recolor import build_S2_constraints
+from src.schemas.s3_bands import build_S3_constraints
+from src.schemas.s4_residue_color import build_S4_constraints
 
 
 # =============================================================================
-# S1 and S2 are implemented in separate modules (M3.1)
-# S3-S11 remain as stubs below (to be implemented in M3.2+)
+# S1-S4 are implemented in separate modules (M3.1-M3.2)
+# S5-S11 remain as stubs below (to be implemented in M3.3+)
 # =============================================================================
-
-def build_S3_constraints(
-    task_context: TaskContext,
-    schema_params: Dict[str, Any],
-    builder: ConstraintBuilder
-) -> None:
-    """
-    Add constraints for schema S3 (Band / stripe laws).
-
-    In M3, this will enforce shared patterns for row/column classes.
-
-    Args:
-        task_context: TaskContext with all φ features and grids
-        schema_params: Parameters for this schema instance
-        builder: ConstraintBuilder to add constraints to
-
-    Raises:
-        NotImplementedError: M2 stub, implementation in M3
-    """
-    raise NotImplementedError("build_S3_constraints is not implemented yet (M3).")
-
-
-def build_S4_constraints(
-    task_context: TaskContext,
-    schema_params: Dict[str, Any],
-    builder: ConstraintBuilder
-) -> None:
-    """
-    Add constraints for schema S4 (Periodicity / residue-class coloring).
-
-    In M3, this will assign colors based on coordinate residues mod K.
-
-    Args:
-        task_context: TaskContext with all φ features and grids
-        schema_params: Parameters for this schema instance
-        builder: ConstraintBuilder to add constraints to
-
-    Raises:
-        NotImplementedError: M2 stub, implementation in M3
-    """
-    raise NotImplementedError("build_S4_constraints is not implemented yet (M3).")
-
 
 def build_S5_constraints(
     task_context: TaskContext,
@@ -297,8 +257,8 @@ if __name__ == "__main__":
     print("-" * 70)
 
     # Test that apply_schema_instance dispatches correctly
-    # S1/S2 are implemented (M3.1), S3-S11 are stubs
-    # Test S3 (stub) raises NotImplementedError
+    # S1-S4 are implemented (M3.1-M3.2), S5-S11 are stubs
+    # Test S5 (stub) raises NotImplementedError
     import numpy as np
     from src.schemas.context import build_example_context
 
@@ -309,10 +269,10 @@ if __name__ == "__main__":
     cb = ConstraintBuilder()
 
     try:
-        apply_schema_instance("S3", dummy_params, dummy_context, cb)
-        raise AssertionError("Expected NotImplementedError for S3 builder stub")
+        apply_schema_instance("S5", dummy_params, dummy_context, cb)
+        raise AssertionError("Expected NotImplementedError for S5 builder stub")
     except NotImplementedError as e:
-        print(f"  ✓ Caught expected NotImplementedError for S3 (stub):")
+        print(f"  ✓ Caught expected NotImplementedError for S5 (stub):")
         print(f"    {e}")
 
     print("\n3. Testing unknown family_id:")

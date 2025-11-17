@@ -41,17 +41,17 @@ def test_context_dispatch_integration():
     print(f"   ✓ ConstraintBuilder created")
 
     # 3. Try to call dispatch with TaskContext
-    # S1/S2 are implemented, S3-S11 are stubs
-    # Test S3 (stub) raises NotImplementedError
+    # S1-S4 are implemented, S5-S11 are stubs
+    # Test S5 (stub) raises NotImplementedError
     print("\n3. Testing dispatch with TaskContext...")
     schema_params = {"dummy": "params"}
 
     try:
-        apply_schema_instance("S3", schema_params, ctx, builder)
+        apply_schema_instance("S5", schema_params, ctx, builder)
         print("   ✗ ERROR: Expected NotImplementedError")
         assert False, "Should have raised NotImplementedError"
     except NotImplementedError as e:
-        print(f"   ✓ Caught expected NotImplementedError from S3 (stub):")
+        print(f"   ✓ Caught expected NotImplementedError from S5 (stub):")
         print(f"     {e}")
 
     # 4. Verify TaskContext structure is accessible
@@ -193,10 +193,104 @@ def test_s2_builder():
     print(f"    (one per pixel in color-1 components)")
 
 
+def test_s3_builder():
+    """Test S3 builder with toy example."""
+    print("\n" + "=" * 70)
+    print("Testing S3 builder (Band / stripe laws)")
+    print("=" * 70)
+
+    import numpy as np
+    from src.schemas.context import build_example_context, TaskContext
+    from src.constraints.builder import ConstraintBuilder
+
+    # Create a 4x4 grid
+    input_grid = np.array([
+        [1, 2, 3, 4],
+        [5, 6, 7, 8],
+        [1, 2, 3, 4],  # Same as row 0
+        [9, 8, 7, 6]
+    ], dtype=int)
+
+    output_grid = input_grid.copy()
+
+    ex = build_example_context(input_grid, output_grid)
+    ctx = TaskContext(train_examples=[ex], test_examples=[], C=10)
+
+    # Create params: tie rows 0 and 2
+    params = {
+        "example_type": "train",
+        "example_index": 0,
+        "row_classes": [[0, 2]],  # Rows 0 and 2 share pattern
+        "col_classes": [],
+        "col_period_K": None,
+        "row_period_K": None
+    }
+
+    builder = ConstraintBuilder()
+    apply_schema_instance("S3", params, ctx, builder)
+
+    # 4 columns × 10 colors = 40 constraints
+    expected = 4 * ctx.C
+    assert len(builder.constraints) == expected, \
+        f"Expected {expected} constraints, got {len(builder.constraints)}"
+
+    print(f"  ✓ S3 added {len(builder.constraints)} tie constraints")
+    print(f"    (tie rows 0,2 across 4 columns × {ctx.C} colors)")
+
+
+def test_s4_builder():
+    """Test S4 builder with toy example."""
+    print("\n" + "=" * 70)
+    print("Testing S4 builder (Residue-class coloring)")
+    print("=" * 70)
+
+    import numpy as np
+    from src.schemas.context import build_example_context, TaskContext
+    from src.constraints.builder import ConstraintBuilder
+
+    # Create a 4x4 grid
+    input_grid = np.array([
+        [0, 1, 0, 1],
+        [2, 3, 2, 3],
+        [0, 1, 0, 1],
+        [2, 3, 2, 3]
+    ], dtype=int)
+
+    output_grid = input_grid.copy()
+
+    ex = build_example_context(input_grid, output_grid)
+    ctx = TaskContext(train_examples=[ex], test_examples=[], C=5)
+
+    # Create params: even columns → color 1, odd columns → color 3
+    params = {
+        "example_type": "train",
+        "example_index": 0,
+        "axis": "col",
+        "K": 2,
+        "residue_to_color": {
+            "0": 1,  # even columns → color 1
+            "1": 3   # odd columns → color 3
+        }
+    }
+
+    builder = ConstraintBuilder()
+    apply_schema_instance("S4", params, ctx, builder)
+
+    # 4x4 grid = 16 pixels, one fix per pixel
+    expected = 16
+    assert len(builder.constraints) == expected, \
+        f"Expected {expected} constraints, got {len(builder.constraints)}"
+
+    print(f"  ✓ S4 added {len(builder.constraints)} fix constraints")
+    print(f"    (one per pixel in 4x4 grid)")
+
+
 if __name__ == "__main__":
     test_context_dispatch_integration()
     test_s1_builder()
     test_s2_builder()
+    test_s3_builder()
+    test_s4_builder()
 
     print("\n" + "=" * 70)
     print("✓ All integration tests passed!")
@@ -208,4 +302,6 @@ if __name__ == "__main__":
     print("  - All builder functions have compatible signatures")
     print("  - S1 builder works (Direct pixel color tie)")
     print("  - S2 builder works (Component-wise recolor)")
-    print("  - Ready for M3.2+ schema implementations!")
+    print("  - S3 builder works (Band / stripe laws)")
+    print("  - S4 builder works (Residue-class coloring)")
+    print("  - Ready for M3.3+ schema implementations!")
