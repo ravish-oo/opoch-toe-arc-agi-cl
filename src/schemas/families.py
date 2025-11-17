@@ -117,8 +117,9 @@ SCHEMA_FAMILIES: Dict[str, SchemaFamily] = {
             "Canonical 'pattern → icon' primitive for tasks like digit drawing."
         ),
         parameter_spec={
-            "seed_type_to_template": "dict[int->Patch]",  # seed type → patch
-            "template_size": "tuple[int,int]"              # (h, w)
+            "example_type": "str",                         # "train" | "test"
+            "example_index": "int",                        # which example
+            "seed_templates": "dict[str, dict[str,int]]"   # hash_str -> {offset_str: color}
         },
         required_features=["neighborhood_hashes"],
         builder_name="build_S5_constraints"
@@ -211,8 +212,9 @@ SCHEMA_FAMILIES: Dict[str, SchemaFamily] = {
             "Safety net for any local weirdness that depends on subtle local shape types."
         ),
         parameter_spec={
-            "hash_to_patch": "dict[int->Patch]",  # conceptual codebook
-            "patch_size": "tuple[int,int]"         # typically (3,3)
+            "example_type": "str",                         # "train" | "test"
+            "example_index": "int",                        # which example
+            "hash_templates": "dict[str, dict[str,int]]"   # hash_str -> {offset_str: color}
         },
         required_features=["neighborhood_hashes"],
         builder_name="build_S11_constraints"

@@ -24,32 +24,14 @@ from src.schemas.s1_copy_tie import build_S1_constraints
 from src.schemas.s2_component_recolor import build_S2_constraints
 from src.schemas.s3_bands import build_S3_constraints
 from src.schemas.s4_residue_color import build_S4_constraints
+from src.schemas.s5_template_stamping import build_S5_constraints
+from src.schemas.s11_local_codebook import build_S11_constraints
 
 
 # =============================================================================
-# S1-S4 are implemented in separate modules (M3.1-M3.2)
-# S5-S11 remain as stubs below (to be implemented in M3.3+)
+# S1-S5 and S11 are implemented in separate modules (M3.1-M3.3)
+# S6-S10 remain as stubs below (to be implemented in M3.4+)
 # =============================================================================
-
-def build_S5_constraints(
-    task_context: TaskContext,
-    schema_params: Dict[str, Any],
-    builder: ConstraintBuilder
-) -> None:
-    """
-    Add constraints for schema S5 (Template stamping).
-
-    In M3, this will stamp template patches around seed pixels.
-
-    Args:
-        task_context: TaskContext with all φ features and grids
-        schema_params: Parameters for this schema instance
-        builder: ConstraintBuilder to add constraints to
-
-    Raises:
-        NotImplementedError: M2 stub, implementation in M3
-    """
-    raise NotImplementedError("build_S5_constraints is not implemented yet (M3).")
 
 
 def build_S6_constraints(
@@ -157,27 +139,6 @@ def build_S10_constraints(
     raise NotImplementedError("build_S10_constraints is not implemented yet (M3).")
 
 
-def build_S11_constraints(
-    task_context: TaskContext,
-    schema_params: Dict[str, Any],
-    builder: ConstraintBuilder
-) -> None:
-    """
-    Add constraints for schema S11 (Local neighborhood codebook).
-
-    In M3, this will apply learned codebook mappings from hash to patch.
-
-    Args:
-        task_context: TaskContext with all φ features and grids
-        schema_params: Parameters for this schema instance
-        builder: ConstraintBuilder to add constraints to
-
-    Raises:
-        NotImplementedError: M2 stub, implementation in M3
-    """
-    raise NotImplementedError("build_S11_constraints is not implemented yet (M3).")
-
-
 # =============================================================================
 # Builder registry
 # =============================================================================
@@ -257,8 +218,8 @@ if __name__ == "__main__":
     print("-" * 70)
 
     # Test that apply_schema_instance dispatches correctly
-    # S1-S4 are implemented (M3.1-M3.2), S5-S11 are stubs
-    # Test S5 (stub) raises NotImplementedError
+    # S1-S5 and S11 are implemented (M3.1-M3.3), S6-S10 are stubs
+    # Test S6 (stub) raises NotImplementedError
     import numpy as np
     from src.schemas.context import build_example_context
 
@@ -269,10 +230,10 @@ if __name__ == "__main__":
     cb = ConstraintBuilder()
 
     try:
-        apply_schema_instance("S5", dummy_params, dummy_context, cb)
-        raise AssertionError("Expected NotImplementedError for S5 builder stub")
+        apply_schema_instance("S6", dummy_params, dummy_context, cb)
+        raise AssertionError("Expected NotImplementedError for S6 builder stub")
     except NotImplementedError as e:
-        print(f"  ✓ Caught expected NotImplementedError for S5 (stub):")
+        print(f"  ✓ Caught expected NotImplementedError for S6 (stub):")
         print(f"    {e}")
 
     print("\n3. Testing unknown family_id:")

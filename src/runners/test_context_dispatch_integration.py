@@ -41,17 +41,17 @@ def test_context_dispatch_integration():
     print(f"   ✓ ConstraintBuilder created")
 
     # 3. Try to call dispatch with TaskContext
-    # S1-S4 are implemented, S5-S11 are stubs
-    # Test S5 (stub) raises NotImplementedError
+    # S1-S5 and S11 are implemented, S6-S10 are stubs
+    # Test S6 (stub) raises NotImplementedError
     print("\n3. Testing dispatch with TaskContext...")
     schema_params = {"dummy": "params"}
 
     try:
-        apply_schema_instance("S5", schema_params, ctx, builder)
+        apply_schema_instance("S6", schema_params, ctx, builder)
         print("   ✗ ERROR: Expected NotImplementedError")
         assert False, "Should have raised NotImplementedError"
     except NotImplementedError as e:
-        print(f"   ✓ Caught expected NotImplementedError from S5 (stub):")
+        print(f"   ✓ Caught expected NotImplementedError from S6 (stub):")
         print(f"     {e}")
 
     # 4. Verify TaskContext structure is accessible
@@ -285,12 +285,124 @@ def test_s4_builder():
     print(f"    (one per pixel in 4x4 grid)")
 
 
+def test_s5_builder():
+    """Test S5 builder with toy example."""
+    print("\n" + "=" * 70)
+    print("Testing S5 builder (Template stamping)")
+    print("=" * 70)
+
+    import numpy as np
+    from src.schemas.context import build_example_context, TaskContext
+    from src.constraints.builder import ConstraintBuilder
+
+    # Create a 5x5 grid with a seed pixel
+    input_grid = np.array([
+        [0, 0, 0, 0, 0],
+        [0, 1, 0, 0, 0],
+        [0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0]
+    ], dtype=int)
+
+    output_grid = input_grid.copy()
+
+    ex = build_example_context(input_grid, output_grid)
+    ctx = TaskContext(train_examples=[ex], test_examples=[], C=10)
+
+    # Get hash at (1,1)
+    if (1, 1) in ex.neighborhood_hashes:
+        seed_hash = ex.neighborhood_hashes[(1, 1)]
+    else:
+        print("  ⚠ Warning: No hash at (1,1), skipping S5 test")
+        return
+
+    # Create params: stamp 2x2 square around seed
+    params = {
+        "example_type": "train",
+        "example_index": 0,
+        "seed_templates": {
+            str(seed_hash): {
+                "(0,0)": 5,
+                "(0,1)": 5,
+                "(1,0)": 5,
+                "(1,1)": 5
+            }
+        }
+    }
+
+    builder = ConstraintBuilder()
+    apply_schema_instance("S5", params, ctx, builder)
+
+    # Should have 4 constraints (one 2x2 template)
+    expected = 4
+    assert len(builder.constraints) >= expected, \
+        f"Expected at least {expected} constraints, got {len(builder.constraints)}"
+
+    print(f"  ✓ S5 added {len(builder.constraints)} template constraints")
+    print(f"    (stamped 2x2 template at seed pixel)")
+
+
+def test_s11_builder():
+    """Test S11 builder with toy example."""
+    print("\n" + "=" * 70)
+    print("Testing S11 builder (Local neighborhood codebook)")
+    print("=" * 70)
+
+    import numpy as np
+    from src.schemas.context import build_example_context, TaskContext
+    from src.constraints.builder import ConstraintBuilder
+
+    # Create a 3x3 grid
+    input_grid = np.array([
+        [0, 1, 0],
+        [1, 2, 1],
+        [0, 1, 0]
+    ], dtype=int)
+
+    output_grid = input_grid.copy()
+
+    ex = build_example_context(input_grid, output_grid)
+    ctx = TaskContext(train_examples=[ex], test_examples=[], C=10)
+
+    # Get a hash from the grid
+    if ex.neighborhood_hashes:
+        sample_hash = list(ex.neighborhood_hashes.values())[0]
+        pixels_with_hash = sum(1 for h in ex.neighborhood_hashes.values() if h == sample_hash)
+    else:
+        print("  ⚠ Warning: No hashes found, skipping S11 test")
+        return
+
+    # Create params: rewrite center pixel for this hash
+    params = {
+        "example_type": "train",
+        "example_index": 0,
+        "hash_templates": {
+            str(sample_hash): {
+                "(0,0)": 7
+            }
+        }
+    }
+
+    builder = ConstraintBuilder()
+    apply_schema_instance("S11", params, ctx, builder)
+
+    # Should have 1 constraint per pixel with this hash
+    expected = pixels_with_hash
+    assert len(builder.constraints) == expected, \
+        f"Expected {expected} constraints, got {len(builder.constraints)}"
+
+    print(f"  ✓ S11 added {len(builder.constraints)} codebook constraints")
+    print(f"    (applied template to {pixels_with_hash} matching pixels)")
+
+
 if __name__ == "__main__":
     test_context_dispatch_integration()
     test_s1_builder()
     test_s2_builder()
     test_s3_builder()
     test_s4_builder()
+    test_s5_builder()
+    test_s11_builder()
 
     print("\n" + "=" * 70)
     print("✓ All integration tests passed!")
@@ -304,4 +416,6 @@ if __name__ == "__main__":
     print("  - S2 builder works (Component-wise recolor)")
     print("  - S3 builder works (Band / stripe laws)")
     print("  - S4 builder works (Residue-class coloring)")
-    print("  - Ready for M3.3+ schema implementations!")
+    print("  - S5 builder works (Template stamping)")
+    print("  - S11 builder works (Local neighborhood codebook)")
+    print("  - Ready for M3.4+ schema implementations!")
