@@ -9,7 +9,7 @@ All schema builders share a standard signature:
     def build_Sk_constraints(task_context, schema_params, builder) -> None
 
 Where:
-  - task_context: dict with grids, features, N, C, etc.
+  - task_context: TaskContext with grids, features, N, C, etc.
   - schema_params: parameters for this schema instance
   - builder: ConstraintBuilder to accumulate constraints
 """
@@ -17,6 +17,7 @@ Where:
 from typing import Callable, Dict, Any
 
 from src.constraints.builder import ConstraintBuilder
+from src.schemas.context import TaskContext
 
 
 # =============================================================================
@@ -24,7 +25,7 @@ from src.constraints.builder import ConstraintBuilder
 # =============================================================================
 
 def build_S1_constraints(
-    task_context: Dict[str, Any],
+    task_context: TaskContext,
     schema_params: Dict[str, Any],
     builder: ConstraintBuilder
 ) -> None:
@@ -34,7 +35,7 @@ def build_S1_constraints(
     In M3, this will enforce equality of colors for feature-equivalent pixels.
 
     Args:
-        task_context: Task-specific data (grids, features, N, C)
+        task_context: TaskContext with all φ features and grids
         schema_params: Parameters for this schema instance
         builder: ConstraintBuilder to add constraints to
 
@@ -45,7 +46,7 @@ def build_S1_constraints(
 
 
 def build_S2_constraints(
-    task_context: Dict[str, Any],
+    task_context: TaskContext,
     schema_params: Dict[str, Any],
     builder: ConstraintBuilder
 ) -> None:
@@ -55,7 +56,7 @@ def build_S2_constraints(
     In M3, this will recolor components based on object class and size.
 
     Args:
-        task_context: Task-specific data (grids, features, N, C)
+        task_context: TaskContext with all φ features and grids
         schema_params: Parameters for this schema instance
         builder: ConstraintBuilder to add constraints to
 
@@ -66,7 +67,7 @@ def build_S2_constraints(
 
 
 def build_S3_constraints(
-    task_context: Dict[str, Any],
+    task_context: TaskContext,
     schema_params: Dict[str, Any],
     builder: ConstraintBuilder
 ) -> None:
@@ -76,7 +77,7 @@ def build_S3_constraints(
     In M3, this will enforce shared patterns for row/column classes.
 
     Args:
-        task_context: Task-specific data (grids, features, N, C)
+        task_context: TaskContext with all φ features and grids
         schema_params: Parameters for this schema instance
         builder: ConstraintBuilder to add constraints to
 
@@ -87,7 +88,7 @@ def build_S3_constraints(
 
 
 def build_S4_constraints(
-    task_context: Dict[str, Any],
+    task_context: TaskContext,
     schema_params: Dict[str, Any],
     builder: ConstraintBuilder
 ) -> None:
@@ -97,7 +98,7 @@ def build_S4_constraints(
     In M3, this will assign colors based on coordinate residues mod K.
 
     Args:
-        task_context: Task-specific data (grids, features, N, C)
+        task_context: TaskContext with all φ features and grids
         schema_params: Parameters for this schema instance
         builder: ConstraintBuilder to add constraints to
 
@@ -108,7 +109,7 @@ def build_S4_constraints(
 
 
 def build_S5_constraints(
-    task_context: Dict[str, Any],
+    task_context: TaskContext,
     schema_params: Dict[str, Any],
     builder: ConstraintBuilder
 ) -> None:
@@ -118,7 +119,7 @@ def build_S5_constraints(
     In M3, this will stamp template patches around seed pixels.
 
     Args:
-        task_context: Task-specific data (grids, features, N, C)
+        task_context: TaskContext with all φ features and grids
         schema_params: Parameters for this schema instance
         builder: ConstraintBuilder to add constraints to
 
@@ -129,7 +130,7 @@ def build_S5_constraints(
 
 
 def build_S6_constraints(
-    task_context: Dict[str, Any],
+    task_context: TaskContext,
     schema_params: Dict[str, Any],
     builder: ConstraintBuilder
 ) -> None:
@@ -139,7 +140,7 @@ def build_S6_constraints(
     In M3, this will constrain output to be a crop of selected bbox.
 
     Args:
-        task_context: Task-specific data (grids, features, N, C)
+        task_context: TaskContext with all φ features and grids
         schema_params: Parameters for this schema instance
         builder: ConstraintBuilder to add constraints to
 
@@ -150,7 +151,7 @@ def build_S6_constraints(
 
 
 def build_S7_constraints(
-    task_context: Dict[str, Any],
+    task_context: TaskContext,
     schema_params: Dict[str, Any],
     builder: ConstraintBuilder
 ) -> None:
@@ -160,7 +161,7 @@ def build_S7_constraints(
     In M3, this will summarize macro-cells into smaller output grid.
 
     Args:
-        task_context: Task-specific data (grids, features, N, C)
+        task_context: TaskContext with all φ features and grids
         schema_params: Parameters for this schema instance
         builder: ConstraintBuilder to add constraints to
 
@@ -171,7 +172,7 @@ def build_S7_constraints(
 
 
 def build_S8_constraints(
-    task_context: Dict[str, Any],
+    task_context: TaskContext,
     schema_params: Dict[str, Any],
     builder: ConstraintBuilder
 ) -> None:
@@ -181,7 +182,7 @@ def build_S8_constraints(
     In M3, this will replicate a base tile pattern to fill region.
 
     Args:
-        task_context: Task-specific data (grids, features, N, C)
+        task_context: TaskContext with all φ features and grids
         schema_params: Parameters for this schema instance
         builder: ConstraintBuilder to add constraints to
 
@@ -192,7 +193,7 @@ def build_S8_constraints(
 
 
 def build_S9_constraints(
-    task_context: Dict[str, Any],
+    task_context: TaskContext,
     schema_params: Dict[str, Any],
     builder: ConstraintBuilder
 ) -> None:
@@ -202,7 +203,7 @@ def build_S9_constraints(
     In M3, this will propagate spokes from cross-shaped seeds.
 
     Args:
-        task_context: Task-specific data (grids, features, N, C)
+        task_context: TaskContext with all φ features and grids
         schema_params: Parameters for this schema instance
         builder: ConstraintBuilder to add constraints to
 
@@ -213,7 +214,7 @@ def build_S9_constraints(
 
 
 def build_S10_constraints(
-    task_context: Dict[str, Any],
+    task_context: TaskContext,
     schema_params: Dict[str, Any],
     builder: ConstraintBuilder
 ) -> None:
@@ -223,7 +224,7 @@ def build_S10_constraints(
     In M3, this will assign different colors to border vs interior pixels.
 
     Args:
-        task_context: Task-specific data (grids, features, N, C)
+        task_context: TaskContext with all φ features and grids
         schema_params: Parameters for this schema instance
         builder: ConstraintBuilder to add constraints to
 
@@ -234,7 +235,7 @@ def build_S10_constraints(
 
 
 def build_S11_constraints(
-    task_context: Dict[str, Any],
+    task_context: TaskContext,
     schema_params: Dict[str, Any],
     builder: ConstraintBuilder
 ) -> None:
@@ -244,7 +245,7 @@ def build_S11_constraints(
     In M3, this will apply learned codebook mappings from hash to patch.
 
     Args:
-        task_context: Task-specific data (grids, features, N, C)
+        task_context: TaskContext with all φ features and grids
         schema_params: Parameters for this schema instance
         builder: ConstraintBuilder to add constraints to
 
@@ -258,7 +259,7 @@ def build_S11_constraints(
 # Builder registry
 # =============================================================================
 
-BUILDERS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any], ConstraintBuilder], None]] = {
+BUILDERS: Dict[str, Callable[[TaskContext, Dict[str, Any], ConstraintBuilder], None]] = {
     "S1": build_S1_constraints,
     "S2": build_S2_constraints,
     "S3": build_S3_constraints,
@@ -280,7 +281,7 @@ BUILDERS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any], ConstraintBuilder]
 def apply_schema_instance(
     family_id: str,
     schema_params: Dict[str, Any],
-    task_context: Dict[str, Any],
+    task_context: TaskContext,
     builder: ConstraintBuilder
 ) -> None:
     """
@@ -293,7 +294,7 @@ def apply_schema_instance(
     Args:
         family_id: Schema family identifier (e.g. "S1", "S2", ..., "S11")
         schema_params: Parameters for this schema instance
-        task_context: Task-specific context (grids, features, N, C, etc.)
+        task_context: TaskContext with all φ features and grids
         builder: ConstraintBuilder to accumulate constraints
 
     Raises:

@@ -56,7 +56,7 @@ for detailed WOs refer to docs/WOs/M2/
 ## M3 – Schema builders S1–S11
 * **M3** = actually make S1–S11 *do something* using M1+M2.
 
-### **WO-M3.0 – Define a TaskContext struct**
+### **WO-M3.0 – Define a TaskContext struct** ✅ COMPLETE
 
 **File:** `src/schemas/context.py`
 **Goal:** one coherent object we pass into every `build_Sk_constraints`, so they all see the same data.
@@ -91,7 +91,7 @@ Later, the runner will precompute this once per task and pass it into each build
 
 ---
 
-### **WO-M3.1 – Implement S1 + S2 builders (copy/equality + component recolor)**
+### **WO-M3.1 – Implement S1 + S2 builders (copy/equality + component recolor)** 
 
 **Files:**
 
