@@ -172,11 +172,16 @@ SCHEMA_FAMILIES: Dict[str, SchemaFamily] = {
             "Handles motif replication with zero padding or other backgrounds."
         ),
         parameter_spec={
-            "tile_size": "tuple[int,int]",     # (h, w)
-            "tiling_region_rule": "str",       # where to tile
-            "padding_color": "int"             # background color for incomplete tiles
+            "example_type": "str",                  # "train" | "test"
+            "example_index": "int",                 # which example
+            "tile_height": "int",                   # tile height
+            "tile_width": "int",                    # tile width
+            "tile_pattern": "dict[str,int]",        # offset -> color mapping
+            "region_origin": "str",                 # "(r0,c0)" top-left of tiling region
+            "region_height": "int",                 # tiling region height
+            "region_width": "int"                   # tiling region width
         },
-        required_features=["coords_bands", "neighborhood_hashes"],
+        required_features=[],
         builder_name="build_S8_constraints"
     ),
 
@@ -189,9 +194,11 @@ SCHEMA_FAMILIES: Dict[str, SchemaFamily] = {
             "Extends plus shapes and crosses along cardinal directions."
         ),
         parameter_spec={
-            "seed_type_to_spokes": "dict[int->dict[str,Any]]"  # seed type → spoke config
+            "example_type": "str",                  # "train" | "test"
+            "example_index": "int",                 # which example
+            "seeds": "list[dict]"                   # list of seed configs with center, colors, max_steps
         },
-        required_features=["neighborhood_hashes", "coords_bands"],
+        required_features=[],
         builder_name="build_S9_constraints"
     ),
 
@@ -203,11 +210,12 @@ SCHEMA_FAMILIES: Dict[str, SchemaFamily] = {
             "Draws frames, borders around shapes, or fills interiors differently."
         ),
         parameter_spec={
-            "border_color": "int",
-            "interior_color": "int",
-            "scope_rule": "str"  # e.g. 'whole_grid', 'per_component_of_color_k'
+            "example_type": "str",                  # "train" | "test"
+            "example_index": "int",                 # which example
+            "border_color": "int",                  # color for border pixels
+            "interior_color": "int"                 # color for interior pixels
         },
-        required_features=["components", "object_roles"],  # object_roles has per-component border/interior
+        required_features=["border_info"],
         builder_name="build_S10_constraints"
     ),
 

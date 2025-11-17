@@ -176,7 +176,7 @@ Wire S5, S11 into `dispatch.BUILDERS`.
 
 ---
 
-### **WO-M3.4 – Implement S6 + S7 (cropping & summary grids)**
+### **WO-M3.4 – Implement S6 + S7 (cropping & summary grids)** ✅ COMPLETE
 
 **Files:**
 
@@ -202,7 +202,7 @@ Wire S6, S7 into `dispatch.BUILDERS`.
 
 ---
 
-### **WO-M3.5 – Implement S8 + S9 + S10 (tiling, cross propagation, frame)**
+### **WO-M3.5 – Implement S8 + S9 + S10 (tiling, cross propagation, frame)** ✅ COMPLETE
 
 **Files:**
 

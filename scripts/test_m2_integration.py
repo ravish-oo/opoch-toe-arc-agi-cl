@@ -114,38 +114,32 @@ def test_full_pipeline_structure():
     add_one_hot_constraints(builder, N, task_context.C)
     initial_constraint_count = len(builder.constraints)
 
-    # Select a schema family that's still a stub (S8, since S1-S7 + S11 are implemented in M3.1-M3.4)
+    # Test a schema with empty params (should handle gracefully)
     family = SCHEMA_FAMILIES["S8"]
 
     # Prepare schema parameters (would come from law mining in M3)
-    schema_params = {
-        "feature_predicate": "test"  # Dummy parameter
-    }
+    schema_params = {}  # Empty params
 
-    # Dispatch to builder (S8 should raise NotImplementedError, S1-S7 + S11 are implemented)
-    try:
-        apply_schema_instance(
-            family_id=family.id,
-            schema_params=schema_params,
-            task_context=task_context,
-            builder=builder
-        )
-        raise AssertionError("Expected NotImplementedError")
-    except NotImplementedError as e:
-        # This is expected for S8-S10 (still stubs)
-        assert "M3" in str(e)
+    # Dispatch to builder (all schemas implemented in M3.1-M3.5)
+    # With empty params, builders should return early without adding constraints
+    apply_schema_instance(
+        family_id=family.id,
+        schema_params=schema_params,
+        task_context=task_context,
+        builder=builder
+    )
 
-    # Builder should still have only one-hot constraints (stub didn't add any)
+    # Builder should still have only one-hot constraints (empty params = no constraints added)
     assert len(builder.constraints) == initial_constraint_count
 
-    print("  ✓ Full pipeline structure ready for M3 (S1-S7 + S11 implemented, S8-S10 stubs)")
+    print("  ✓ Full pipeline structure ready (all S1-S11 implemented in M3.1-M3.5)")
 
 
 def test_all_schemas_dispatchable():
-    """Test that all 11 schemas can be dispatched (S1-S7 + S11 implemented, S8-S10 stubs)"""
+    """Test that all 11 schemas can be dispatched (all S1-S11 implemented in M3.1-M3.5)"""
     print("Testing all 11 schemas are dispatchable...")
 
-    # Need proper TaskContext for S1-S7, S11
+    # Need proper TaskContext for all schemas
     import numpy as np
     from src.schemas.context import build_example_context, TaskContext
 
@@ -157,24 +151,15 @@ def test_all_schemas_dispatchable():
     for fid, family in SCHEMA_FAMILIES.items():
         builder = ConstraintBuilder()
 
-        if fid in ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S11"]:
-            # S1-S7 + S11 are implemented - should NOT raise NotImplementedError
-            # They may or may not add constraints depending on params (empty params = no constraints)
-            try:
-                apply_schema_instance(fid, schema_params, task_context, builder)
-                # Success - builder implemented
-            except NotImplementedError:
-                raise AssertionError(f"{fid} should be implemented (M3.1-M3.4)")
-        else:
-            # S8-S10 should still raise NotImplementedError
-            try:
-                apply_schema_instance(fid, schema_params, task_context, builder)
-                raise AssertionError(f"{fid} should raise NotImplementedError (stub)")
-            except NotImplementedError:
-                # Expected for stubs
-                pass
+        # All S1-S11 are implemented - should NOT raise NotImplementedError
+        # They may or may not add constraints depending on params (empty params = no constraints)
+        try:
+            apply_schema_instance(fid, schema_params, task_context, builder)
+            # Success - builder implemented
+        except NotImplementedError:
+            raise AssertionError(f"{fid} should be implemented (M3.1-M3.5)")
 
-    print(f"  ✓ All {len(SCHEMA_FAMILIES)} schemas dispatchable (S1-S7 + S11 implemented, S8-S10 stubs)")
+    print(f"  ✓ All {len(SCHEMA_FAMILIES)} schemas dispatchable (all S1-S11 implemented in M3.1-M3.5)")
 
 
 def test_constraint_accumulation():
@@ -241,7 +226,7 @@ def test_ready_for_m3():
     # Check dispatcher works
     assert callable(apply_schema_instance), "M2.4: dispatcher function"
 
-    # S1-S7 + S11 are implemented (M3.1-M3.4), S8-S10 are stubs
+    # All S1-S11 are implemented (M3.1-M3.5)
     import numpy as np
     from src.schemas.context import build_example_context, TaskContext
 
@@ -251,22 +236,14 @@ def test_ready_for_m3():
 
     for fid in BUILDERS.keys():
         builder = ConstraintBuilder()
-        if fid in ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S11"]:
-            # Implemented in M3.1-M3.4 - should NOT raise
-            try:
-                apply_schema_instance(fid, {}, task_context, builder)
-                # Success
-            except NotImplementedError:
-                raise AssertionError(f"{fid} should be implemented (M3.1-M3.4)")
-        else:
-            # S8-S10 still stubs
-            try:
-                apply_schema_instance(fid, {}, task_context, builder)
-                raise AssertionError(f"{fid} should be stub")
-            except NotImplementedError:
-                pass  # Good - stub
+        # All schemas implemented in M3.1-M3.5 - should NOT raise
+        try:
+            apply_schema_instance(fid, {}, task_context, builder)
+            # Success
+        except NotImplementedError:
+            raise AssertionError(f"{fid} should be implemented (M3.1-M3.5)")
 
-    print("  ✓ M2 infrastructure complete, M3.1-M3.4 implemented (S1-S7 + S11), S8-S10 ready")
+    print("  ✓ M2 infrastructure complete, all S1-S11 implemented (M3.1-M3.5)")
 
 
 def test_no_circular_imports():
@@ -339,7 +316,8 @@ def main():
         print("  ✓ WO-M2.3: SchemaFamily registry (S1-S11)")
         print("  ✓ WO-M2.4: Schema builder dispatch skeleton")
         print()
-        print("Infrastructure ready for M3 (schema implementations)")
+        print("M3 Milestone Complete:")
+        print("  ✓ All 11 schema builders implemented (M3.1-M3.5)")
         print("=" * 70)
         return 0
 
