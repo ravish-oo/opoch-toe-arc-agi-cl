@@ -11,9 +11,13 @@ Key components:
   - mine_law_config.py: Orchestrator that produces TaskLawConfig
 """
 
-from src.law_mining.roles import compute_roles, RolesMapping
+from src.law_mining.roles import compute_roles, RolesMapping, NodeKind
+from src.law_mining.role_stats import compute_role_stats, RoleStats
 
 __all__ = [
     "compute_roles",
     "RolesMapping",
+    "NodeKind",
+    "compute_role_stats",
+    "RoleStats",
 ]
