@@ -1,47 +1,45 @@
-now we expand next. first assess the atomicity of it ie. is it around 300 loc or not. if not we break it into sequential WOs so that we dont bring in stubs.
+now we expand next. first assess the atomicity of it ie. is it around 300 loc or not. if not we break it into sequential WOs so that we dont bring in stubs. do not over break it.. i mean operate in toe mode and use ur judgement
 
-### Work Order 3 – Connected components per color
+### 🔹 WO-M6.2 – Role statistics aggregator
 
-**Goal:** get connected components and basic stats (size, bbox).
+**Goal:** compress raw role assignments and train IO into role-level statistics for mining.
 
-**Use:** `numpy` + `scipy.ndimage` (`label`)
-(if SciPy is not available, use a simple BFS/DFS, but explicitly tell Claude to **prefer scipy.ndimage.label**).
+**File:** `src/law_mining/role_stats.py`
 
-**Tasks:**
+**Scope:**
 
-* Define a `Component` dataclass:
+* Define:
 
   ```python
   @dataclass
-  class Component:
-      id: int
-      color: int
-      pixels: list[tuple[int,int]]
-      size: int
-      bbox: tuple[int,int,int,int]  # (r_min, r_max, c_min, c_max)
+  class RoleStats:
+      train_in: List[tuple[int,int,int,int]]   # (example_idx, r, c, color_in)
+      train_out: List[tuple[int,int,int,int]]  # (example_idx, r, c, color_out)
+      test_in: List[tuple[int,int,int,int]]    # (example_idx, r, c, color_in_test)
   ```
 
 * Implement:
 
   ```python
-  def connected_components_by_color(grid: Grid) -> list[Component]:
-      # for each distinct color in grid:
-      #   create a binary mask (grid == color)
-      #   run scipy.ndimage.label(mask) to get connected labels
-      #   for each label, collect pixels, size, bbox
-      # return flat list of Component objects
+  def compute_role_stats(
+      task_context: TaskContext,
+      roles: RolesMapping
+  ) -> Dict[int, RoleStats]:
+      """
+      For each role_id, collect:
+        - all its appearances in train_in, train_out, test_in,
+        - with associated colors.
+      """
   ```
 
-* For now use 4-connectivity (up/down/left/right).
-
-* Add a tiny test: small grid with 2–3 blobs, print component sizes and bboxes.
-
+This is the main input to schema miners: they work at the role level, but can still consult φ when needed.
 ---
 repeating same instrcutions so that u dont miss
 1. in this we dont want underspecificity so that claude gets some wiggle room. so be specific and dont leave a wiggle room 
 2. we explicitly want to use mature and standard python libs so that claude doenst reinvent the wheel or implements any algo. we must resuse what is out thr and just stitch it. that is the smart move 
 3. give clear reviwer+tester instructions so that they can knw how to test and make sure things are working as expected. may be involve real arc agi tasks if applicable? 
-4. include instruction to build thin runner in parallel if applicable to this WO 
-5. make sure u stick to the math spec my friend shared 
+4. make sure this aligns to math spec and clarificaitons i provided and how we dicussed it being sitting seamlessly on top of M1-M5 and how order shud be
+5. no smuggled non-toe defaults!
+6. incoroporate/address applicable gaps we dicussed which were highlited by implementer
 
-pls operate as a pi agent..
+pls operate in toe mode
