@@ -1,6 +1,67 @@
 ## Overall sequence:
 
-> **operators → law families → schema instances → builder functions → ConstraintBuilder → solver → Pi-agent loop**
+φ operators  →  WL/q role labeller  →  law miner  →  TaskLawConfig
+        →  schema builders (S1–S11)  →  ConstraintBuilder  →  solver  →  diagnostics
+
+Step-by-step in words:
+
+1. **Operators (φ)**
+
+   * From raw grids for a task (train inputs/outputs, test inputs), compute all features:
+
+     * components, object_ids, bands, residues, neighborhood hashes, roles bits, etc.
+   * This is your structural “perception” of the task.
+
+2. **WL/q role labeller**
+
+   * Run a WL-style refinement over all pixels in all grids (train_in, train_out, test_in), using φ and local neighborhoods.
+   * Output: a `role_id` for each pixel = its structural “info-geometry role” in this task.
+
+3. **Law miner (algorithmic, no LLM)**
+
+   * Using:
+
+     * `TaskContext` (grids + φ),
+     * roles from WL,
+   * For each schema family S1–S11:
+
+     * find parameter settings that are **always true** on all training examples,
+     * create `SchemaInstance(family_id="S_k", params=...)` for those.
+   * Collect all schema instances into a `TaskLawConfig`.
+
+4. **Schema builders (S1–S11)**
+
+   * Given `TaskLawConfig` + `TaskContext`, call each `build_Sk_constraints(...)`.
+   * Each builder uses φ (and roles, if needed) to emit **linear constraints** into the `ConstraintBuilder`.
+
+5. **ConstraintBuilder → constraint system B(T)**
+
+   * All schema builders write rows into `ConstraintBuilder.constraints`.
+   * Add one-hot constraints per pixel.
+
+6. **Solver (LP/ILP)**
+
+   * Feed constraints into the ILP (`solve_constraints_for_grid`).
+   * Solve for y (a one-hot assignment per pixel).
+   * Decode y → predicted output grids (train and test).
+
+7. **Diagnostics**
+
+   * Build `SolveDiagnostics`:
+
+     * status (“ok” / “infeasible” / “mismatch” / “error”),
+     * solver_status,
+     * num_constraints / num_variables,
+     * schema_ids_used (+ counts),
+     * example summaries & train mismatches where applicable.
+   * For training tasks, check if predicted train outputs == true outputs:
+
+     * if yes → law miner succeeded for this task;
+     * if no → law miner is underpowered or task is ambiguous.
+
+* no search over programs,
+* no arbitrary defaults,
+* just: φ → roles → mined always-true schemas → constraints → closure.
 
 ---
 
@@ -31,9 +92,9 @@ We don’t implement all now, just to show how operators fit.
 
    * Load ARC tasks, run full pipeline on training pairs, compare outputs.
 
-6. **Pi-agent orchestration layer**
+6. **WL/q Law Miner**
 
-   * LLM decides which schema families + params to use, calls the pipeline, interprets results.
+   * M6 = build the algorithmic law miner that sits on top of M1–M5 and acts as source of TaskLawConfig, in a way that is fully TOE-consistent (no defaults, only always-true invariants).
 
 ---
 
@@ -65,293 +126,218 @@ High-level Work Orders in docs/WOs/M4/M4.md . detailed WOs in docs/WOs/M4/
 
 ---
 
-## M5 –  Pi-agent interface, diagnostics, catalog building ✅ COMPLETE
-M5 is where we make the **kernel “talk”** — fail-closed, with rich, structured intermediate info that a Pi-agent can actually use to debug and refine laws.
-
-We’re done with the math engine; now we’re building the **interface and diagnostics layer** that a Pi-agent will sit on.
+## M5 – diagnostics, catalog building ✅ COMPLETE
+M5 is where we make the **kernel “talk”** — fail-closed, with rich, structured intermediate info that allows us to to debug and refine laws.
 
 High-level Work Orders in docs/WOs/M5/M5.md . Detailed WOs in docs/WOs/M5/
 
 ---
- ## M6 - Pi agent on langgraph
+ ## M6 - WL/q Law Miner
 
- Good, we’re finally at the “just build the thing” stage.
+High-level M6 Work Orders – WL/q Law Miner
 
-Given all the constraints (atomic WOs, no reinvention, just stitching), here’s how I’d slice the LangGraph implementation into **3 high-level work orders**.
+M6 = build the **algorithmic law miner** that sits on top of M1–M5 and replaces the Pi-agent as the source of `TaskLawConfig`, in a way that is fully TOE-consistent (no defaults, only always-true invariants).
 
-No stubs, but we can keep v0 behavior for the Pi-agent node minimal so the graph runs and you can later swap in the real prompt chain.
+### 🔹 WO-M6.1 – Role labeller (WL/q) over TaskContext
 
----
+**Goal:** assign a structural role id to each pixel in each grid of a task (train_in, train_out, test_in), using φ + local neighborhoods, so mining operates over roles instead of raw pixels.
 
-## 🧩 WO-LG1 – State schema + graph skeleton ✅ COMPLETE
-
-**Goal:** Define the shared state (`ArcPiState`), and a module that builds the LangGraph with named nodes and routing functions wired, but without heavy node logic yet.
-
-**Files:**
-
-* `src/agents/arc_pi_state.py`
-* `src/agents/arc_pi_graph.py`
+**File:** `src/law_mining/roles.py`
 
 **Scope (high-level):**
 
-1. **`arc_pi_state.py`**
+* Define a `RolesMapping` type, e.g.:
 
-   * Define `ArcPiState` as a `TypedDict` with the fields we agreed:
+  ```python
+  RolesMapping = Dict[tuple[str, int, int, int], int]
+  # key: (kind, example_idx, r, c)
+  # kind ∈ {"train_in", "train_out", "test_in"}
+  # value: role_id (0..R-1)
+  ```
 
-     * `task_id`, `max_attempts`
-     * `raw_task` (dict as from `load_arc_task`)
-     * `attempt`, `outcome`
-     * `current_law_config`, `current_diagnostics`
-     * `law_config_history`, `diagnostics_history`
-     * `pi_decision`, `pi_notes`
-     * `chat_history` (list of message dicts)
+* Implement:
 
-   * No algorithms, just types and maybe a helper to create an initial empty state.
+  ```python
+  def compute_roles(task_context: TaskContext) -> RolesMapping:
+      """
+      Use φ (coords, bands, components, hashes, etc.) + WL-style refinement
+      to assign stable role_ids per pixel across all grids in this task.
+      """
+  ```
 
-2. **`arc_pi_graph.py`**
+* Behavior:
 
-   * Import `ArcPiState`, `StateGraph`, `START`, `END` from LangGraph.
+  * Construct nodes = all pixels in:
 
-   * Declare nodes by name (no bodies here, just registration):
+    * each training input (`train_in`),
+    * each training output (`train_out`),
+    * each test input (`test_in`).
+  * Initialize labels from a subset of φ + kind (in/out/test).
+  * Run a fixed number of WL refinement iterations (e.g. 3–5) over 4-neighbor graph in each grid.
+  * Map final labels to consecutive `role_id`s.
 
-     * `"init_task_node"`
-     * `"pi_agent_node"`
-     * `"engine_node"`
-     * `"success_node"`
-     * `"failure_node"`
-
-   * Add conditional routing functions **as pure functions** that look only at `ArcPiState` keys:
-
-     * `route_from_init(state) -> "engine_node" | "pi_agent_node"`
-     * `route_from_pi_agent(state) -> "engine_node" | "failure_node"`
-     * `route_from_engine(state) -> "success_node" | "pi_agent_node" | "failure_node"`
-
-   * Build:
-
-     ```python
-     builder = StateGraph(ArcPiState)
-     # add_node(...) calls, add_edge(START→init_task_node), add_conditional_edges(...), add_edge(success/failure→END)
-     graph = builder.compile()
-     ```
-
-   * Export a `get_arc_pi_graph()` function that returns the compiled `graph`.
-
-**Reviewer/tester hint:** this WO is just types + wiring; no domain logic yet. You can unit-test that `graph` compiles and that routing functions behave correctly for a few dummy states.
+> No defaults, no heuristics about color — just structural label refinement.
 
 ---
 
-## 🧩 WO-LG2 – Implement init/engine/success/failure nodes (kernel integration) ✅ COMPLETE
+### 🔹 WO-M6.2 – Role statistics aggregator
 
-**Goal:** Implement the **non-LLM nodes**:
+**Goal:** compress raw role assignments and train IO into role-level statistics for mining.
 
-* `init_task_node`
-* `engine_node`
-* `success_node`
-* `failure_node`
+**File:** `src/law_mining/role_stats.py`
 
-and wire them into the graph skeleton created in WO-LG1.
+**Scope:**
 
-**Files:**
+* Define:
 
-* `src/agents/nodes_core.py` (for node functions)
-* touch `src/agents/arc_pi_graph.py` (to import and register these nodes)
-* optional thin runner: `src/agents/run_single_task_graph.py`
+  ```python
+  @dataclass
+  class RoleStats:
+      train_in: List[tuple[int,int,int,int]]   # (example_idx, r, c, color_in)
+      train_out: List[tuple[int,int,int,int]]  # (example_idx, r, c, color_out)
+      test_in: List[tuple[int,int,int,int]]    # (example_idx, r, c, color_in_test)
+  ```
 
-**Scope (high-level):**
+* Implement:
 
-1. **`nodes_core.py`**
+  ```python
+  def compute_role_stats(
+      task_context: TaskContext,
+      roles: RolesMapping
+  ) -> Dict[int, RoleStats]:
+      """
+      For each role_id, collect:
+        - all its appearances in train_in, train_out, test_in,
+        - with associated colors.
+      """
+  ```
 
-   Implement:
-
-   * `init_task_node(state: ArcPiState) -> dict`:
-
-     * Use `task_id` and `max_attempts` from state.
-     * Call `load_arc_task(task_id, TRAINING_CHALLENGES_PATH)` **once**.
-     * Load existing `TaskLawConfig` from `catalog.store.load_task_law_config`.
-     * Initialize:
-
-       * `raw_task`,
-       * `attempt = 0`,
-       * `outcome = "unresolved"`,
-       * `current_law_config = existing_config or None`,
-       * `current_diagnostics = None`,
-       * `law_config_history = []`,
-       * `diagnostics_history = []`,
-       * `pi_decision = None`, `pi_notes = None`,
-       * `chat_history = base_prompt_chain.messages` (the JSON you defined).
-
-   * `engine_node(state: ArcPiState) -> dict`:
-
-     * Require `current_law_config` is not `None`, else set a special error status and route to `failure_node`.
-
-     * Call `solve_arc_task_with_diagnostics` from `src/runners/kernel.py`, passing:
-
-       * `task_id`,
-       * `current_law_config`,
-       * `use_training_labels=True`,
-       * **either** `challenges_path` constant or `raw_task` depending on how you wired the kernel.
-
-     * Update:
-
-       * `current_diagnostics`,
-       * `diagnostics_history += [current_diagnostics]`.
-
-   * `success_node(state: ArcPiState) -> dict`:
-
-     * Call `save_task_law_config(task_id, current_law_config)`.
-     * Set `outcome = "solved"`.
-
-   * `failure_node(state: ArcPiState) -> dict`:
-
-     * Inspect `pi_decision`, `attempt`, `max_attempts`, and `current_diagnostics`.
-
-     * Decide `outcome` ∈ `{"unsolved_basis_incomplete","unsolved_attempt_limit"}`.
-
-     * Append a JSON line with:
-
-       * `task_id`,
-       * `attempt`,
-       * `outcome`,
-       * `pi_decision`, `pi_notes`,
-       * serialized `law_config_history`,
-       * serialized `diagnostics_history` (no algorithms, just `json.dumps`).
-
-     * Return with `{"outcome": outcome}`.
-
-2. **Update `arc_pi_graph.py`**
-
-   * Import node functions from `nodes_core.py`.
-   * Replace dummy nodes with real ones:
-
-     ```python
-     builder.add_node("init_task_node", init_task_node)
-     builder.add_node("engine_node", engine_node)
-     builder.add_node("success_node", success_node)
-     builder.add_node("failure_node", failure_node)
-     ```
-
-3. **Thin runner** (optional but useful): `run_single_task_graph.py`
-
-   * Parse `--task-id` and `--max-attempts` from CLI.
-   * Instantiate `graph = get_arc_pi_graph()`.
-   * Call `graph.invoke({"task_id": ..., "max_attempts": N})`.
-   * Print `final_state["outcome"]` and lengths of `law_config_history` / `diagnostics_history`.
-
-**Reviewer/tester hint:** for now, `pi_agent_node` can be a simple placeholder (see WO-LG3) so the graph runs. The core test is: `engine_node` actually calls the kernel, and success/failure nodes update catalog/logs correctly.
+This is the main input to schema miners: they work at the role level, but can still consult φ when needed.
 
 ---
 
-## 🧩 WO-LG3 – Implement `pi_agent_node` with prompt chain + JSON parsing
+### 🔹 WO-M6.3 – Per-schema miners: mine_S1 … mine_S11 → SchemaInstance list
 
-**Goal:** Implement the **Pi-agent node** that uses your `base_prompt_chain.json` + `last_msg.json` + `reattempt_msg.json` + `giveup.json`, calls the LLM, and returns a valid `TaskLawConfig` or a meta decision.
+**Goal:** for each schema family S1–S11, implement a miner that:
 
-**Files:**
+* reads `TaskContext`, `roles`, `role_stats`, φ,
+* finds parameter sets that are **always true on training**,
+* and returns a list of `SchemaInstance` objects.
 
-* `src/agents/nodes_pi.py`
-* touch `src/agents/arc_pi_graph.py` (register node)
-* your JSON prompt files in `prompts/` (already planned)
+**Files:** new module(s) under `src/law_mining/`:
 
-**Scope (high-level):**
+* `mine_s1_copy.py`
+* `mine_s2_component_recolor.py`
+* …
+* or group them logically (e.g. S1–S2, S3–S4, S5/S11, etc.).
 
-1. **`nodes_pi.py`**
+**Scope (per miner, conceptually):**
 
-   Implement `pi_agent_node(state: ArcPiState) -> dict`:
+* Common signature:
 
-   * Decide which message template to use:
+  ```python
+  def mine_Sk(
+      task_context: TaskContext,
+      roles: RolesMapping,
+      role_stats: Dict[int, RoleStats],
+  ) -> List[SchemaInstance]:
+      ...
+  ```
 
-     * If `attempt == 0`:
+* Constraints:
 
-       * use `last_msg.json` to build the first task-specific user message.
-     * If `0 < attempt < max_attempts`:
+  * A mined `SchemaInstance` must correspond to a law that is **exactly true** on all train examples.
+  * If a candidate mapping (e.g. role→color, size→color, stripe pattern, tile, etc.) has any contradictions across train examples, it is **rejected**.
+  * No “fallback” or “best-effort” acceptance: either always-true, or not included.
 
-       * use `reattempt_msg.json`, filling:
+* Example patterns:
 
-         * `task_id`,
-         * `attempt`, `max_attempts`,
-         * `last_pi_decision`,
-         * `last_law_config_json`,
-         * `last_diagnostics_json`.
-     * If `attempt >= max_attempts`:
+  * **S1**: for each role_id, if all train_out entries for that role have **the same color c**, create a schema instance that ties that role (or those φ conditions) to color c.
+  * **S2**: for each object class, if mapping from input-color/size → output-color is consistent across all train examples, instantiate that mapping.
+  * **S6/S7**: use components and output shapes to infer a unique crop/summary mapping (consistency across trains).
 
-       * you **won’t call** `pi_agent_node` (graph will route to `failure_node`), so no special case needed here.
-
-   * Merge:
-
-     * `base_prompt_chain.messages` (from state),
-     * plus the new task-specific message,
-     * to form `messages` for LLM.
-
-   * Call your LLM client (Claude/OpenAI) with:
-
-     * `messages = state["chat_history"] + [new_user_msg]`,
-     * system keys as needed.
-
-   * Parse the **assistant’s JSON-only response** into:
-
-     * `decision` string,
-     * `law_config` dict or null,
-     * `notes` string.
-
-   * Update:
-
-     * `pi_decision = decision`,
-     * `pi_notes = notes`,
-     * `current_law_config` = parsed TaskLawConfig (if decision == "law_config", else None),
-     * `law_config_history += [current_law_config]` if applicable,
-     * `chat_history` += [`assistant` message].
-
-   * Increment `attempt` by 1.
-
-   Return partial state dict with those updates.
-
-   > No algorithm implementation here beyond JSON parsing and a bit of glue.
-
-2. **Update `arc_pi_graph.py`**
-
-   * Import `pi_agent_node` from `nodes_pi.py`.
-
-   * Register it:
-
-     ```python
-     builder.add_node("pi_agent_node", pi_agent_node)
-     ```
-
-   * Ensure conditional edges defined in WO-LG1 point to this node.
-
-3. **Thin test:**
-
-   * In `run_single_task_graph.py`, use a **fake Pi-agent** at first (e.g., a version of `pi_agent_node` that always returns `decision: "give_up"` with notes), or hit a mocked LLM endpoint.
-   * Once plumbing works, swap in the real LLM call.
-
-**Reviewer/tester hint:** focus on:
-
-* Correct construction of `messages` from `chat_history + last_msg/reattempt_msg`.
-* Valid JSON parsing into `decision`, `law_config`, `notes`.
-* Correct state updates: `attempt`, `current_law_config`, histories, `pi_decision`, `pi_notes`, `chat_history`.
+> This is the core “law mining engine on top of φ” from the spec — fully deterministic
 
 ---
 
-### How this ties together
+### 🔹 WO-M6.4 – Law miner orchestrator: `mine_law_config` per task
 
-After M1 we have:
+**Goal:** combine all schema miners into a single function that produces a full `TaskLawConfig` for one ARC task.
 
-* A **grid IO + indexing module**.
-* A **feature module** that can compute:
+**File:** `src/law_mining/mine_law_config.py`
 
-  * coordinates and bands,
-  * border flags,
-  * connected components + shape signatures,
-  * object_id per pixel,
-  * row/col nonzero flags,
-  * neighborhood hashes.
+**Scope:**
 
-This is φ(p) in code.
+* Implement:
 
-* **M1** = φ + IO 
-* **M2** = indexing + ConstraintBuilder + SchemaFamily metadata + dispatch skeleton
+  ```python
+  def mine_law_config(task_context: TaskContext) -> TaskLawConfig:
+      """
+      High-level miner:
+        - compute roles,
+        - compute role_stats,
+        - call mine_S1..mine_S11,
+        - assemble all SchemaInstances into a TaskLawConfig.
+      """
+  ```
 
-From there, we can:
+* Steps inside:
 
-* Define the **SchemaFamily registry** and **builder functions** (next milestones).
-* Then hook ConstraintBuilder + solver.
-* Finally, bring in the Pi-agent that uses all this.
+  * `roles = compute_roles(task_context)`
+  * `role_stats = compute_role_stats(task_context, roles)`
+  * `schema_instances = []`
+  * For each S_k:
+
+    * `schema_instances.extend(mine_Sk(task_context, roles, role_stats))`
+  * Return `TaskLawConfig(schema_instances=schema_instances)`.
+
+* No assumptions about “coverage”:
+
+  * if the miner produces a law_config that doesn’t solve train outputs uniquely, this will show up when we feed it to the kernel and see mismatches / infeasibility.
+
+> This function is the non-LLM “law miner” you originally imagined: pure φ + invariants + schemas → law_config.
+
+---
+
+### 🔹 WO-M6.5 – Training sweep with miner: end-to-end validation
+
+**Goal:** run the WL/q miner across all training tasks, validate via kernel, and record which tasks are solved (and which are underdetermined/failed).
+
+**File:** `src/runners/sweep_training_with_miner.py`
+
+**Scope:**
+
+* For each task_id in `arc-agi_training_challenges.json`:
+
+  * Build `TaskContext` as usual.
+
+  * Call `law_config = mine_law_config(task_context)`.
+
+  * Call:
+
+    ```python
+    outputs, diagnostics = solve_arc_task_with_diagnostics(
+        task_id=task_id,
+        law_config=law_config,
+        use_training_labels=True,
+        challenges_path=Path("data/arc-agi_training_challenges.json")
+    )
+    ```
+
+  * If `diagnostics.status == "ok"`:
+
+    * store this `law_config` in the Catalog (via `catalog.store`).
+
+  * Else:
+
+    * log:
+
+      * task_id,
+      * diagnostics (mismatches, solver_status, schemas used, etc.),
+      * for later inspection / refinement.
+
+* No Pi-agent here; this is pure miner + kernel + diagnostics.
+
+> This is the **realization** of “once S1–S11 are implemented, the rest is a small law mining engine on top of φ + a tiny LP wrapper”.
+
+---
