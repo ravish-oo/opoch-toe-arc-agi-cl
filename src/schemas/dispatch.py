@@ -14,7 +14,7 @@ Where:
   - builder: ConstraintBuilder to accumulate constraints
 """
 
-from typing import Callable, Dict, Any
+from typing import Callable, Dict, Any, Optional
 
 from src.constraints.builder import ConstraintBuilder
 from src.schemas.context import TaskContext
@@ -67,7 +67,8 @@ def apply_schema_instance(
     task_context: TaskContext,
     builder: ConstraintBuilder,
     example_type: str = None,
-    example_index: int = None
+    example_index: int = None,
+    schema_constraint_counts: Optional[Dict[str, int]] = None,
 ) -> None:
     """
     Look up the builder function for the given family_id and apply it.
@@ -83,6 +84,9 @@ def apply_schema_instance(
         builder: ConstraintBuilder to accumulate constraints
         example_type: "train" or "test" (optional, injected into params if provided)
         example_index: Which example to constrain (optional, injected into params if provided)
+        schema_constraint_counts: Optional dict to track per-schema constraint counts.
+                                  If provided, will be updated with constraints added
+                                  by this schema instance.
 
     Raises:
         KeyError: If no builder is registered for the given family_id
@@ -90,8 +94,12 @@ def apply_schema_instance(
     Example:
         >>> builder = ConstraintBuilder()
         >>> params = {"K": 3, "residue_to_color": {0: 1, 1: 2, 2: 0}}
+        >>> counts = {}
         >>> apply_schema_instance("S4", params, context, builder,
-        ...                       example_type="train", example_index=0)
+        ...                       example_type="train", example_index=0,
+        ...                       schema_constraint_counts=counts)
+        >>> counts["S4"]  # Number of constraints added by S4
+        12
     """
     if family_id not in BUILDERS:
         raise KeyError(f"No builder registered for schema family '{family_id}'")
@@ -104,8 +112,30 @@ def apply_schema_instance(
     if example_index is not None:
         enriched_params["example_index"] = example_index
 
+    # Track constraints before building
+    before = len(builder.constraints)
+
+    # Apply schema builder
     builder_fn = BUILDERS[family_id]
     builder_fn(task_context, enriched_params, builder)
+
+    # Track constraints after building (M5.X diagnostics)
+    if schema_constraint_counts is not None:
+        after = len(builder.constraints)
+        added = after - before
+
+        # Sanity check: schema builders should only add constraints, never remove
+        if added < 0:
+            raise RuntimeError(
+                f"Schema builder {family_id} reduced constraint count by {-added}. "
+                f"Before: {before}, After: {after}"
+            )
+
+        # Update counts if this schema added any constraints
+        if added > 0:
+            schema_constraint_counts[family_id] = (
+                schema_constraint_counts.get(family_id, 0) + added
+            )
 
 
 if __name__ == "__main__":

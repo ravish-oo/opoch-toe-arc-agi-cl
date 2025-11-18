@@ -27,7 +27,7 @@ We don’t implement all now, just to show how operators fit.
    * Connect to a standard LP/ILP library (`pulp`, `ortools`, or `cvxpy`).
    * Encode constraints and solve for y.
 
-5. **Task IO + test harness**
+5. **Task IO + test harness** ✅ COMPLETE 
 
    * Load ARC tasks, run full pipeline on training pairs, compare outputs.
 
@@ -65,264 +65,270 @@ High-level Work Orders in docs/WOs/M4/M4.md . detailed WOs in docs/WOs/M4/
 
 ---
 
-## M5 –  Pi-agent interface, diagnostics, catalog building
+## M5 –  Pi-agent interface, diagnostics, catalog building ✅ COMPLETE
 M5 is where we make the **kernel “talk”** — fail-closed, with rich, structured intermediate info that a Pi-agent can actually use to debug and refine laws.
 
 We’re done with the math engine; now we’re building the **interface and diagnostics layer** that a Pi-agent will sit on.
 
-High-level Work Orders
-### 🔹 WO-M5.1 – Result & diagnostics struct ✅ COMPLETE
+High-level Work Orders in docs/WOs/M5/M5.md . Detailed WOs in docs/WOs/M5/
 
-**Goal:** define a single, structured object that captures *everything* about a solve attempt, especially in failure.
+---
+ ## M6 - Pi agent on langgraph
 
-**File:** `src/runners/results.py`
+ Good, we’re finally at the “just build the thing” stage.
+
+Given all the constraints (atomic WOs, no reinvention, just stitching), here’s how I’d slice the LangGraph implementation into **3 high-level work orders**.
+
+No stubs, but we can keep v0 behavior for the Pi-agent node minimal so the graph runs and you can later swap in the real prompt chain.
+
+---
+
+## 🧩 WO-LG1 – State schema + graph skeleton
+
+**Goal:** Define the shared state (`ArcPiState`), and a module that builds the LangGraph with named nodes and routing functions wired, but without heavy node logic yet.
+
+**Files:**
+
+* `src/agents/arc_pi_state.py`
+* `src/agents/arc_pi_graph.py`
 
 **Scope (high-level):**
 
-* Define something like:
+1. **`arc_pi_state.py`**
 
-  ```python
-  @dataclass
-  class SolveDiagnostics:
-      task_id: str
-      law_config: TaskLawConfig
-      status: Literal["ok", "infeasible", "mismatch", "error"]
-      solver_status: str                 # from pulp
-      num_constraints: int
-      num_variables: int
-      schema_ids_used: list[str]
-      # optional: per-schema constraint counts
+   * Define `ArcPiState` as a `TypedDict` with the fields we agreed:
 
-      # Only for training tasks:
-      train_mismatches: list[dict]       # e.g. [{ "example_idx": 0, "diff_cells": [...] }, ...]
+     * `task_id`, `max_attempts`
+     * `raw_task` (dict as from `load_arc_task`)
+     * `attempt`, `outcome`
+     * `current_law_config`, `current_diagnostics`
+     * `law_config_history`, `diagnostics_history`
+     * `pi_decision`, `pi_notes`
+     * `chat_history` (list of message dicts)
 
-      # Debug:
-      error_message: str | None
-  ```
+   * No algorithms, just types and maybe a helper to create an initial empty state.
 
-* This struct is what the Pi-agent will see:
+2. **`arc_pi_graph.py`**
 
-  * if `status != "ok"`, it gets **explicit reasons**: infeasible, mismatch, where mismatched, etc.
+   * Import `ArcPiState`, `StateGraph`, `START`, `END` from LangGraph.
 
----
+   * Declare nodes by name (no bodies here, just registration):
 
-### 🔹 WO-M5.2 – Extend kernel to return diagnostics, not just grids ✅ COMPLETE
+     * `"init_task_node"`
+     * `"pi_agent_node"`
+     * `"engine_node"`
+     * `"success_node"`
+     * `"failure_node"`
 
-**Goal:** make `solve_arc_task` produce **diagnostics + outputs** in a way that is fail-closed and Pi-agent-friendly.
+   * Add conditional routing functions **as pure functions** that look only at `ArcPiState` keys:
 
-**File:** `src/runners/kernel.py` (augment)
+     * `route_from_init(state) -> "engine_node" | "pi_agent_node"`
+     * `route_from_pi_agent(state) -> "engine_node" | "failure_node"`
+     * `route_from_engine(state) -> "success_node" | "pi_agent_node" | "failure_node"`
 
-**Scope:**
+   * Build:
 
-* Change / wrap `solve_arc_task(task_id, law_config)` to something like:
+     ```python
+     builder = StateGraph(ArcPiState)
+     # add_node(...) calls, add_edge(START→init_task_node), add_conditional_edges(...), add_edge(success/failure→END)
+     graph = builder.compile()
+     ```
 
-  ```python
-  def solve_arc_task_with_diagnostics(
-      task_id: str,
-      law_config: TaskLawConfig,
-      use_training_labels: bool = False
-  ) -> tuple[dict[str, list[Grid]], SolveDiagnostics]:
-      """
-      Returns:
-        outputs: {"train": [...], "test": [...]}
-        diagnostics: SolveDiagnostics
-      """
-  ```
+   * Export a `get_arc_pi_graph()` function that returns the compiled `graph`.
 
-* Behavior:
-
-  * Always:
-
-    * build TaskContext,
-    * build constraints via schemas,
-    * call solver,
-    * decode y → grids,
-    * fill `SolveDiagnostics` with:
-
-      * status = "ok" / "infeasible" / "error".
-  * If `use_training_labels=True`:
-
-    * compare predicted vs true train outputs,
-    * set status = "mismatch" if any differ,
-    * populate `train_mismatches` with per-example diff info.
-
-This is exactly the “fail-close + intermediate info” you mentioned.
+**Reviewer/tester hint:** this WO is just types + wiring; no domain logic yet. You can unit-test that `graph` compiles and that routing functions behave correctly for a few dummy states.
 
 ---
 
-### 🔹 WO-M5.3 – Training sweep + catalog builder script
+## 🧩 WO-LG2 – Implement init/engine/success/failure nodes (kernel integration)
 
-**Goal:** one script that a Pi-agent / human can drive to **try law configs on all training tasks and build/update the Catalog**.
+**Goal:** Implement the **non-LLM nodes**:
 
-**File:** `src/runners/build_catalog_from_training.py`
+* `init_task_node`
+* `engine_node`
+* `success_node`
+* `failure_node`
 
-**Scope:**
+and wire them into the graph skeleton created in WO-LG1.
 
-* For each `task_id` in `arc-agi_training_challenges.json`:
+**Files:**
 
-  * Load an existing `TaskLawConfig` (if any) from `catalog/store.py` **or** receive one from outside (Pi-agent).
-  * Call `solve_arc_task_with_diagnostics(task_id, law_config, use_training_labels=True)`.
-  * If `status == "ok"`:
+* `src/agents/nodes_core.py` (for node functions)
+* touch `src/agents/arc_pi_graph.py` (to import and register these nodes)
+* optional thin runner: `src/agents/run_single_task_graph.py`
 
-    * mark this config as **valid** for that task,
-    * write/update it in the catalog store.
-  * If `status == "mismatch"` or `"infeasible"`:
+**Scope (high-level):**
 
-    * log diagnostics to a JSON or log file for that task:
+1. **`nodes_core.py`**
 
-      * mismatches, solver_status, schemas used.
-* This script does **no law discovery**; it just:
+   Implement:
 
-  * runs the kernel,
-  * records successes,
-  * outputs failures in a Pi-agent-readable format.
+   * `init_task_node(state: ArcPiState) -> dict`:
 
-This is the main “sweep + record” entrypoint.
+     * Use `task_id` and `max_attempts` from state.
+     * Call `load_arc_task(task_id, TRAINING_CHALLENGES_PATH)` **once**.
+     * Load existing `TaskLawConfig` from `catalog.store.load_task_law_config`.
+     * Initialize:
 
----
+       * `raw_task`,
+       * `attempt = 0`,
+       * `outcome = "unresolved"`,
+       * `current_law_config = existing_config or None`,
+       * `current_diagnostics = None`,
+       * `law_config_history = []`,
+       * `diagnostics_history = []`,
+       * `pi_decision = None`, `pi_notes = None`,
+       * `chat_history = base_prompt_chain.messages` (the JSON you defined).
 
-### 🔹 WO-M5.4 – Pi-agent harness / interface
+   * `engine_node(state: ArcPiState) -> dict`:
 
-**Goal:** a thin Python interface that exposes everything a Pi-agent needs via simple function calls, without forcing it to touch internals.
+     * Require `current_law_config` is not `None`, else set a special error status and route to `failure_node`.
 
-**File:** `src/agents/pi_interface.py`
+     * Call `solve_arc_task_with_diagnostics` from `src/runners/kernel.py`, passing:
 
-**Scope:**
+       * `task_id`,
+       * `current_law_config`,
+       * `use_training_labels=True`,
+       * **either** `challenges_path` constant or `raw_task` depending on how you wired the kernel.
 
-* Define functions like:
+     * Update:
 
-  ```python
-  def load_task_summary(task_id: str) -> dict:
-      """
-      Returns:
-        - basic info about the task,
-        - maybe small grid previews,
-        - counts of components/colors, etc.
-      """
+       * `current_diagnostics`,
+       * `diagnostics_history += [current_diagnostics]`.
 
-  def try_law_config_on_task(
-      task_id: str,
-      law_config: TaskLawConfig
-  ) -> SolveDiagnostics:
-      """
-      Runs solve_arc_task_with_diagnostics(use_training_labels=True)
-      but only returns diagnostics so Pi-agent can see status & mismatches.
-      """
+   * `success_node(state: ArcPiState) -> dict`:
 
-  def save_law_config(task_id: str, law_config: TaskLawConfig) -> None:
-      """
-      Writes to catalog via catalog.store, for configs Pi-agent believes are good.
-      """
-  ```
+     * Call `save_task_law_config(task_id, current_law_config)`.
+     * Set `outcome = "solved"`.
 
-* The idea:
+   * `failure_node(state: ArcPiState) -> dict`:
 
-  * Pi-agent (you + LLM in an interactive session) only talk to `pi_interface`:
+     * Inspect `pi_decision`, `attempt`, `max_attempts`, and `current_diagnostics`.
 
-    * see task summaries,
-    * propose/update law configs,
-    * get rich diagnostics when it fails.
+     * Decide `outcome` ∈ `{"unsolved_basis_incomplete","unsolved_attempt_limit"}`.
 
-This layer is where we later plug “Pi-agent as a prompt/program” without touching the math kernel.
+     * Append a JSON line with:
 
----
+       * `task_id`,
+       * `attempt`,
+       * `outcome`,
+       * `pi_decision`, `pi_notes`,
+       * serialized `law_config_history`,
+       * serialized `diagnostics_history` (no algorithms, just `json.dumps`).
 
-### 🔹 WO-M5.5 – Human/Pi-agent log-friendly formatting
+     * Return with `{"outcome": outcome}`.
 
-**Goal:** make failure cases easy to read and reason about (for both humans and Pi-agent).
+2. **Update `arc_pi_graph.py`**
 
-**File:** `src/runners/logging_utils.py`
+   * Import node functions from `nodes_core.py`.
+   * Replace dummy nodes with real ones:
 
-**Scope:**
+     ```python
+     builder.add_node("init_task_node", init_task_node)
+     builder.add_node("engine_node", engine_node)
+     builder.add_node("success_node", success_node)
+     builder.add_node("failure_node", failure_node)
+     ```
 
-* Helpers to pretty-print `SolveDiagnostics`:
+3. **Thin runner** (optional but useful): `run_single_task_graph.py`
 
-  * print which schemas used,
-  * print mismatched train examples with side-by-side grids,
-  * print counts (constraints, variables).
-* Optionally, convert `SolveDiagnostics` into a **compact JSON** that Pi-agent can read and reason about.
+   * Parse `--task-id` and `--max-attempts` from CLI.
+   * Instantiate `graph = get_arc_pi_graph()`.
+   * Call `graph.invoke({"task_id": ..., "max_attempts": N})`.
+   * Print `final_state["outcome"]` and lengths of `law_config_history` / `diagnostics_history`.
 
-This is mostly sugar, but it’s important for your “observer is observed” workflow: we want the system itself to provide introspectable state.
-
----
-
-## 🔹 WO-M5.X – Enrich diagnostics with per-schema stats & example summaries
-
-**Goal:** give the Pi-agent more structured evidence by:
-
-1. Tracking how many constraints each schema family contributed.
-2. Providing a compact summary of each training/test example (shapes, components).
-
-**Files touched (high-level):**
-
-* `src/runners/results.py`
-* `src/schemas/dispatch.py`
-* `src/schemas/context.py` (or a new `summaries.py`)
-* `src/runners/kernel.py`
+**Reviewer/tester hint:** for now, `pi_agent_node` can be a simple placeholder (see WO-LG3) so the graph runs. The core test is: `engine_node` actually calls the kernel, and success/failure nodes update catalog/logs correctly.
 
 ---
 
-### Part A – Per-schema constraint counts
+## 🧩 WO-LG3 – Implement `pi_agent_node` with prompt chain + JSON parsing
 
-**Idea:** each time we apply a schema instance, record how many constraints it added.
+**Goal:** Implement the **Pi-agent node** that uses your `base_prompt_chain.json` + `last_msg.json` + `reattempt_msg.json` + `giveup.json`, calls the LLM, and returns a valid `TaskLawConfig` or a meta decision.
 
-**High-level scope:**
+**Files:**
 
-* Extend `SolveDiagnostics` with:
+* `src/agents/nodes_pi.py`
+* touch `src/agents/arc_pi_graph.py` (register node)
+* your JSON prompt files in `prompts/` (already planned)
 
-  ```python
-  schema_constraint_counts: Dict[str, int]
-  ```
+**Scope (high-level):**
 
-* In `apply_schema_instance(...)` (in `dispatch.py`):
+1. **`nodes_pi.py`**
 
-  * Capture `before = len(builder.constraints)`.
-  * Call the `build_Sk_constraints(...)` function.
-  * Capture `after = len(builder.constraints)`.
-  * Increment `schema_constraint_counts[family_id] += (after - before)`.
+   Implement `pi_agent_node(state: ArcPiState) -> dict`:
 
-* Ensure `kernel.solve_arc_task_with_diagnostics(...)` passes this dict into `SolveDiagnostics`.
+   * Decide which message template to use:
 
-**Outcome:** Pi-agent can see which schemas were *actually active* and how heavily they were used.
+     * If `attempt == 0`:
 
----
+       * use `last_msg.json` to build the first task-specific user message.
+     * If `0 < attempt < max_attempts`:
 
-### Part B – Example-level summary (compact)
+       * use `reattempt_msg.json`, filling:
 
-**Idea:** each example (train/test) gets a small digest: shape + component stats.
+         * `task_id`,
+         * `attempt`, `max_attempts`,
+         * `last_pi_decision`,
+         * `last_law_config_json`,
+         * `last_diagnostics_json`.
+     * If `attempt >= max_attempts`:
 
-**High-level scope:**
+       * you **won’t call** `pi_agent_node` (graph will route to `failure_node`), so no special case needed here.
 
-* Define an `ExampleSummary` dataclass, e.g. in `results.py` or a new `summaries.py`:
+   * Merge:
 
-  ```python
-  @dataclass
-  class ExampleSummary:
-      input_shape: tuple[int, int]
-      output_shape: Optional[tuple[int, int]]  # None for test inputs
-      components_per_color: Dict[int, int]     # color -> count of components
-  ```
+     * `base_prompt_chain.messages` (from state),
+     * plus the new task-specific message,
+     * to form `messages` for LLM.
 
-* Extend `SolveDiagnostics` with:
+   * Call your LLM client (Claude/OpenAI) with:
 
-  ```python
-  example_summaries: List[ExampleSummary]
-  ```
+     * `messages = state["chat_history"] + [new_user_msg]`,
+     * system keys as needed.
 
-* In `kernel.solve_arc_task_with_diagnostics(...)`:
+   * Parse the **assistant’s JSON-only response** into:
 
-  * For each ExampleContext in `TaskContext.train_examples` and `test_examples`:
+     * `decision` string,
+     * `law_config` dict or null,
+     * `notes` string.
 
-    * Compute `input_shape`, `output_shape` from grids.
-    * Use `components` to build `components_per_color` (count map).
-    * Append an `ExampleSummary` to a list.
-  * Pass that list into `SolveDiagnostics`.
+   * Update:
 
-**Outcome:** Pi-agent can quickly see:
+     * `pi_decision = decision`,
+     * `pi_notes = notes`,
+     * `current_law_config` = parsed TaskLawConfig (if decision == "law_config", else None),
+     * `law_config_history += [current_law_config]` if applicable,
+     * `chat_history` += [`assistant` message].
 
-* per-example sizes,
-* whether output shape matches expectation,
-* how many components of each color exist.
+   * Increment `attempt` by 1.
+
+   Return partial state dict with those updates.
+
+   > No algorithm implementation here beyond JSON parsing and a bit of glue.
+
+2. **Update `arc_pi_graph.py`**
+
+   * Import `pi_agent_node` from `nodes_pi.py`.
+
+   * Register it:
+
+     ```python
+     builder.add_node("pi_agent_node", pi_agent_node)
+     ```
+
+   * Ensure conditional edges defined in WO-LG1 point to this node.
+
+3. **Thin test:**
+
+   * In `run_single_task_graph.py`, use a **fake Pi-agent** at first (e.g., a version of `pi_agent_node` that always returns `decision: "give_up"` with notes), or hit a mocked LLM endpoint.
+   * Once plumbing works, swap in the real LLM call.
+
+**Reviewer/tester hint:** focus on:
+
+* Correct construction of `messages` from `chat_history + last_msg/reattempt_msg`.
+* Valid JSON parsing into `decision`, `law_config`, `notes`.
+* Correct state updates: `attempt`, `current_law_config`, histories, `pi_decision`, `pi_notes`, `chat_history`.
+
 ---
 
 ### How this ties together

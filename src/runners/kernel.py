@@ -25,7 +25,8 @@ from src.schemas.dispatch import apply_schema_instance
 from src.catalog.types import TaskLawConfig
 from src.solver.lp_solver import solve_constraints_for_grid, InfeasibleModelError, TaskSolveError
 from src.solver.decoding import y_to_grid
-from src.runners.results import SolveDiagnostics, compute_train_mismatches
+from src.runners.results import SolveDiagnostics, compute_train_mismatches, ExampleSummary
+from src.features.components import connected_components_by_color
 
 
 def solve_arc_task_with_diagnostics(
@@ -85,10 +86,39 @@ def solve_arc_task_with_diagnostics(
     train_mismatches = []
     error_message: str | None = None
 
+    # M5.X: Per-schema constraint counts and example summaries
+    schema_constraint_counts: Dict[str, int] = {}
+    example_summaries: List[ExampleSummary] = []
+
     try:
         # 1. Load task and build context
         task_data = load_arc_task(task_id, challenges_path)
         ctx: TaskContext = build_task_context_from_raw(task_data)
+
+        # M5.X: Build example summaries for all train and test examples
+        def components_per_color(grid: Grid) -> Dict[int, int]:
+            """Count components per color in a grid."""
+            comps = connected_components_by_color(grid)
+            counts: Dict[int, int] = {}
+            for comp in comps:
+                counts[comp.color] = counts.get(comp.color, 0) + 1
+            return counts
+
+        # Summarize train examples
+        for ex in ctx.train_examples:
+            example_summaries.append(ExampleSummary(
+                input_shape=tuple(ex.input_grid.shape),
+                output_shape=tuple(ex.output_grid.shape) if ex.output_grid is not None else None,
+                components_per_color=components_per_color(ex.input_grid)
+            ))
+
+        # Summarize test examples
+        for ex in ctx.test_examples:
+            example_summaries.append(ExampleSummary(
+                input_shape=tuple(ex.input_grid.shape),
+                output_shape=None,  # Test examples have no ground truth output
+                components_per_color=components_per_color(ex.input_grid)
+            ))
 
         # 2. Solve for each TRAIN example
         for i, ex in enumerate(ctx.train_examples):
@@ -108,6 +138,7 @@ def solve_arc_task_with_diagnostics(
                     builder=builder,
                     example_type="train",
                     example_index=i,
+                    schema_constraint_counts=schema_constraint_counts,
                 )
 
             # Track constraint/variable counts
@@ -149,6 +180,7 @@ def solve_arc_task_with_diagnostics(
                     builder=builder,
                     example_type="test",
                     example_index=i,
+                    schema_constraint_counts=schema_constraint_counts,
                 )
 
             # Track constraint/variable counts
@@ -216,6 +248,8 @@ def solve_arc_task_with_diagnostics(
         num_variables=total_variables,
         schema_ids_used=schema_ids_used,
         train_mismatches=train_mismatches,
+        schema_constraint_counts=schema_constraint_counts,
+        example_summaries=example_summaries,
         error_message=error_message,
     )
 

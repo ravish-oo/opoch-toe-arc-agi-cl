@@ -14,7 +14,7 @@ Key components:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional, List, Dict
+from typing import Literal, Optional, List, Dict, Tuple
 
 import numpy as np
 
@@ -24,6 +24,25 @@ from src.core.grid_types import Grid
 
 # Status type for solve attempts
 SolveStatus = Literal["ok", "infeasible", "mismatch", "error"]
+
+
+@dataclass
+class ExampleSummary:
+    """
+    Summary of a single ARC example (train or test).
+
+    Provides high-level structural information about the example without
+    full grid data. Useful for Pi-agents to understand task characteristics.
+
+    Attributes:
+        input_shape: (H, W) shape of input grid
+        output_shape: (H', W') shape of output grid, or None for test examples
+        components_per_color: Dict mapping color -> number of connected components
+                             of that color in the input grid
+    """
+    input_shape: Tuple[int, int]
+    output_shape: Optional[Tuple[int, int]]
+    components_per_color: Dict[int, int]
 
 
 @dataclass
@@ -71,6 +90,15 @@ class SolveDiagnostics:
     #   "diff_cells": List[{"r": int, "c": int, "true": int, "pred": int}]
     #                or [{"shape_mismatch": True, "true_shape": tuple, "pred_shape": tuple}]
     # }
+
+    # Per-schema constraint counts (M5.X)
+    schema_constraint_counts: Dict[str, int] = field(default_factory=dict)
+    # key: schema family ID (e.g. "S1", "S2", ..., "S11")
+    # value: total number of constraints contributed by that schema
+
+    # Example-level summaries (M5.X)
+    example_summaries: List[ExampleSummary] = field(default_factory=list)
+    # One ExampleSummary per train+test example, in order
 
     # Debug / error information
     error_message: Optional[str] = None
