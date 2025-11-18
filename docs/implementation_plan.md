@@ -83,7 +83,7 @@ No stubs, but we can keep v0 behavior for the Pi-agent node minimal so the graph
 
 ---
 
-## 🧩 WO-LG1 – State schema + graph skeleton
+## 🧩 WO-LG1 – State schema + graph skeleton ✅ COMPLETE
 
 **Goal:** Define the shared state (`ArcPiState`), and a module that builds the LangGraph with named nodes and routing functions wired, but without heavy node logic yet.
 
@@ -140,7 +140,7 @@ No stubs, but we can keep v0 behavior for the Pi-agent node minimal so the graph
 
 ---
 
-## 🧩 WO-LG2 – Implement init/engine/success/failure nodes (kernel integration)
+## 🧩 WO-LG2 – Implement init/engine/success/failure nodes (kernel integration) ✅ COMPLETE
 
 **Goal:** Implement the **non-LLM nodes**:
 
