@@ -14,7 +14,7 @@ now ur role is that of a reviewer+tester. u dont write code in core files. u can
   ---
 
   ---
-  pls understnand this and see if this aligns with @docs/anchors/math_kernel.md and that u hv 100% clarity on how to go about it 
+  pls understnand this and see if this aligns with @docs/anchors/math_kernel.md and @docs/anchors/math_kernel_clarifications.md that u hv 100% clarity on how to go about it 
    ps dont review/test yet. just tell if u hv 100% clarity
   =======
 

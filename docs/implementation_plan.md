@@ -138,7 +138,7 @@ High-level M6 Work Orders – WL/q Law Miner
 
 M6 = build the **algorithmic law miner** that sits on top of M1–M5 and replaces the Pi-agent as the source of `TaskLawConfig`, in a way that is fully TOE-consistent (no defaults, only always-true invariants).
 
-### 🔹 WO-M6.1 – Role labeller (WL/q) over TaskContext
+### 🔹 WO-M6.1 – Role labeller (WL/q) over TaskContext ✅ COMPLETE
 
 **Goal:** assign a structural role id to each pixel in each grid of a task (train_in, train_out, test_in), using φ + local neighborhoods, so mining operates over roles instead of raw pixels.
 
@@ -180,7 +180,7 @@ M6 = build the **algorithmic law miner** that sits on top of M1–M5 and replace
 
 ---
 
-### 🔹 WO-M6.2 – Role statistics aggregator
+### 🔹 WO-M6.2 – Role statistics aggregator ✅ COMPLETE
 
 **Goal:** compress raw role assignments and train IO into role-level statistics for mining.
 
