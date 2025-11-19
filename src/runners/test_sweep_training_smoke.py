@@ -68,14 +68,21 @@ def test_sweep_subset():
         with temp_challenges.open("w", encoding="utf-8") as f:
             json.dump(subset_tasks, f)
 
-        # Run sweep on subset
+        # Run sweep on subset (with test validation)
         # Temporarily override default catalog dir
         from src.catalog import store
         original_catalog_dir = store.DEFAULT_CATALOG_DIR
         store.DEFAULT_CATALOG_DIR = temp_catalog
 
+        solutions_path = Path("data/arc-agi_training_solutions.json")
+
         try:
-            sweep_training_with_miner(temp_challenges, failures_log_path)
+            sweep_training_with_miner(
+                temp_challenges,
+                failures_log_path,
+                validate_test_labels=True,
+                solutions_path=solutions_path
+            )
         finally:
             # Restore original catalog dir
             store.DEFAULT_CATALOG_DIR = original_catalog_dir

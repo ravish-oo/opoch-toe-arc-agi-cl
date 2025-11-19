@@ -49,6 +49,8 @@ def load_training_task_ids(challenges_path: Path) -> List[str]:
 def sweep_training_with_miner(
     challenges_path: Path,
     failures_log_path: Path,
+    validate_test_labels: bool = False,
+    solutions_path: Path | None = None,
 ) -> None:
     """
     Run law mining + kernel validation over all training tasks.
@@ -56,7 +58,7 @@ def sweep_training_with_miner(
     For each task_id:
       - build TaskContext,
       - mine TaskLawConfig,
-      - run kernel with training labels,
+      - run kernel with training labels (and optionally test labels),
       - store law_config in catalog if status == "ok",
       - otherwise log diagnostics for later inspection.
 
@@ -66,16 +68,20 @@ def sweep_training_with_miner(
     Args:
         challenges_path: Path to arc-agi_training_challenges.json
         failures_log_path: Path to write failures log (JSONL format)
+        validate_test_labels: If True, also compare test outputs with ground truth
+        solutions_path: Path to arc-agi_training_solutions.json (required if validate_test_labels=True)
 
     Output:
         - Successful configs saved to: catalog/tasks/{task_id}.json
         - Failed tasks logged to: failures_log_path (one JSON object per line)
+        - Status values: "ok", "mismatch_train", "mismatch_test", "infeasible", "error"
 
     Example:
         >>> challenges = Path("data/arc-agi_training_challenges.json")
+        >>> solutions = Path("data/arc-agi_training_solutions.json")
         >>> failures = Path("logs/miner_training_failures.jsonl")
-        >>> sweep_training_with_miner(challenges, failures)
-        # Processes all 400 training tasks
+        >>> sweep_training_with_miner(challenges, failures, validate_test_labels=True, solutions_path=solutions)
+        # Processes all 1000 training tasks with test validation
     """
     # Load all task IDs
     task_ids = load_training_task_ids(challenges_path)
@@ -111,12 +117,14 @@ def sweep_training_with_miner(
 
                 print(f"  Mined {len(law_config.schema_instances)} schema instances")
 
-                # 3) Validate with kernel (using training labels)
+                # 3) Validate with kernel (using training labels and optionally test labels)
                 outputs, diagnostics = solve_arc_task_with_diagnostics(
                     task_id=task_id,
                     law_config=law_config,
                     use_training_labels=True,
+                    use_test_labels=validate_test_labels,
                     challenges_path=challenges_path,
+                    solutions_path=solutions_path,
                 )
 
                 print(f"  Status: {diagnostics.status}")
@@ -140,6 +148,7 @@ def sweep_training_with_miner(
                         "num_variables": diagnostics.num_variables,
                         "schema_ids_used": diagnostics.schema_ids_used,
                         "train_mismatches": diagnostics.train_mismatches,
+                        "test_mismatches": diagnostics.test_mismatches,
                         "error_message": diagnostics.error_message,
                     }
                     log_f.write(json.dumps(failure_record) + "\n")
@@ -183,5 +192,13 @@ if __name__ == "__main__":
     challenges_path = Path("data/arc-agi_training_challenges.json")
     failures_log_path = Path("logs/miner_training_failures.jsonl")
 
+    # Toggle for train-only vs train+test validation
+    validate_test = True  # Set to False for train-only runs
+
     # Run the sweep
-    sweep_training_with_miner(challenges_path, failures_log_path)
+    sweep_training_with_miner(
+        challenges_path=challenges_path,
+        failures_log_path=failures_log_path,
+        validate_test_labels=validate_test,
+        solutions_path=Path("data/arc-agi_training_solutions.json") if validate_test else None,
+    )

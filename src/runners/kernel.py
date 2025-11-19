@@ -15,8 +15,11 @@ This is the complete math kernel pipeline from the spec.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Dict, List, Tuple
+
+import numpy as np
 
 from src.core.grid_types import Grid
 from src.schemas.context import load_arc_task, build_task_context_from_raw, TaskContext
@@ -25,7 +28,7 @@ from src.schemas.dispatch import apply_schema_instance
 from src.catalog.types import TaskLawConfig
 from src.solver.lp_solver import solve_constraints_for_grid, InfeasibleModelError, TaskSolveError
 from src.solver.decoding import y_to_grid
-from src.runners.results import SolveDiagnostics, compute_train_mismatches, ExampleSummary
+from src.runners.results import SolveDiagnostics, compute_train_mismatches, compute_grid_mismatches, ExampleSummary
 from src.features.components import connected_components_by_color
 
 
@@ -33,21 +36,26 @@ def solve_arc_task_with_diagnostics(
     task_id: str,
     law_config: TaskLawConfig,
     use_training_labels: bool = False,
+    use_test_labels: bool = False,
     challenges_path: Path | None = None,
+    solutions_path: Path | None = None,
 ) -> Tuple[Dict[str, List[Grid]], SolveDiagnostics]:
     """
     Solve an ARC task and return both outputs and comprehensive diagnostics.
 
     This is the Pi-agent-friendly entrypoint that returns rich diagnostics about
     the solve attempt, including solver status, constraint counts, and detailed
-    mismatch information for training examples.
+    mismatch information for training and test examples.
 
     Args:
         task_id: ARC task identifier from challenges JSON
         law_config: TaskLawConfig with schema instances to apply
         use_training_labels: If True, compare predicted train outputs with
                             ground truth and populate mismatch information
+        use_test_labels: If True, compare predicted test outputs with ground truth
+                        from solutions file (requires solutions_path)
         challenges_path: Optional path to challenges JSON (defaults to training set)
+        solutions_path: Optional path to solutions JSON (required if use_test_labels=True)
 
     Returns:
         Tuple of (outputs, diagnostics):
@@ -56,20 +64,22 @@ def solve_arc_task_with_diagnostics(
               "test": [Grid, ...]    # predicted test outputs
             }
           - diagnostics: SolveDiagnostics with:
-              - status: "ok" | "infeasible" | "mismatch" | "error"
+              - status: "ok" | "infeasible" | "mismatch_train" | "mismatch_test" | "error"
               - solver_status: PuLP status string
               - num_constraints, num_variables
               - schema_ids_used
               - train_mismatches (if use_training_labels=True)
+              - test_mismatches (if use_test_labels=True)
               - error_message (if status="error")
 
     Example:
         >>> config = TaskLawConfig(schema_instances=[...])
         >>> outputs, diag = solve_arc_task_with_diagnostics(
-        ...     "00576224", config, use_training_labels=True
+        ...     "00576224", config, use_training_labels=True, use_test_labels=True,
+        ...     solutions_path=Path("data/arc-agi_training_solutions.json")
         ... )
-        >>> if diag.status == "mismatch":
-        ...     print(f"Mismatches: {diag.train_mismatches}")
+        >>> if diag.status == "mismatch_test":
+        ...     print(f"Test mismatches: {diag.test_mismatches}")
     """
     # Default to training challenges if not specified
     if challenges_path is None:
@@ -84,6 +94,7 @@ def solve_arc_task_with_diagnostics(
     status = "ok"
     solver_status_str = "Unknown"
     train_mismatches = []
+    test_mismatches = []
     error_message: str | None = None
 
     # M5.X: Per-schema constraint counts and example summaries
@@ -214,11 +225,56 @@ def solve_arc_task_with_diagnostics(
                 train_outputs_pred
             )
 
-            # Set status based on mismatches
-            if len(train_mismatches) > 0:
-                status = "mismatch"
+        # Compute test mismatches if requested
+        if use_test_labels:
+            if solutions_path is None:
+                raise ValueError("solutions_path is required when use_test_labels=True")
+
+            # Load test solutions from solutions JSON
+            with solutions_path.open("r", encoding="utf-8") as f:
+                solutions_data = json.load(f)
+
+            if task_id not in solutions_data:
+                raise ValueError(f"Task {task_id} not found in solutions file")
+
+            true_test_outputs_raw = solutions_data[task_id]  # List of 2D grid arrays
+
+            # Convert to numpy arrays
+            true_test_outputs = [np.array(grid, dtype=int) for grid in true_test_outputs_raw]
+
+            # Compute test mismatches
+            if len(true_test_outputs) != len(test_outputs_pred):
+                # Number of test examples mismatch
+                test_mismatches = [{
+                    "example_idx": 0,
+                    "diff_cells": [{
+                        "shape_mismatch": True,
+                        "true_count": len(true_test_outputs),
+                        "pred_count": len(test_outputs_pred),
+                    }]
+                }]
             else:
-                status = "ok"
+                # Compare each test example
+                for ex_idx in range(len(true_test_outputs)):
+                    true_grid = true_test_outputs[ex_idx]
+                    pred_grid = test_outputs_pred[ex_idx]
+
+                    mismatches = compute_grid_mismatches(true_grid, pred_grid)
+
+                    if mismatches:
+                        test_mismatches.append({
+                            "example_idx": ex_idx,
+                            "diff_cells": mismatches
+                        })
+
+        # Set status based on mismatches (priority order)
+        # 1. Infeasible/error status set in exception handlers below
+        # 2. Train mismatch takes precedence over test mismatch
+        # 3. Test mismatch only if train is clean
+        if use_training_labels and len(train_mismatches) > 0:
+            status = "mismatch_train"
+        elif use_test_labels and len(test_mismatches) > 0:
+            status = "mismatch_test"
         else:
             status = "ok"
 
@@ -248,6 +304,7 @@ def solve_arc_task_with_diagnostics(
         num_variables=total_variables,
         schema_ids_used=schema_ids_used,
         train_mismatches=train_mismatches,
+        test_mismatches=test_mismatches,
         schema_constraint_counts=schema_constraint_counts,
         example_summaries=example_summaries,
         error_message=error_message,

@@ -23,7 +23,7 @@ from src.core.grid_types import Grid
 
 
 # Status type for solve attempts
-SolveStatus = Literal["ok", "infeasible", "mismatch", "error"]
+SolveStatus = Literal["ok", "infeasible", "mismatch", "mismatch_train", "mismatch_test", "error"]
 
 
 @dataclass
@@ -52,25 +52,29 @@ class SolveDiagnostics:
 
     This structure is what Pi-agents see when they try a law config on a task.
     It captures everything: success/failure status, solver details, and
-    detailed mismatch information for training examples.
+    detailed mismatch information for training and test examples.
 
     Attributes:
         task_id: ARC task identifier
         law_config: The TaskLawConfig that was applied
         status: Solve outcome - one of:
-            - "ok": solver succeeded and (if training) all outputs match
+            - "ok": solver succeeded and all outputs match (train and test if checked)
             - "infeasible": ILP had no solution
-            - "mismatch": solver succeeded but outputs don't match training
+            - "mismatch": solver succeeded but outputs don't match (legacy, being phased out)
+            - "mismatch_train": solver succeeded but train outputs don't match
+            - "mismatch_test": solver succeeded, train matches, but test outputs don't match
             - "error": unexpected error during solving
         solver_status: Raw status string from pulp solver (e.g. "Optimal", "Infeasible")
         num_constraints: Total number of constraints in the ILP
         num_variables: Total number of variables (typically N*C for grid)
         schema_ids_used: List of schema family IDs applied (e.g. ["S1", "S2"])
-        train_mismatches: List of per-example mismatch records (only for training tasks)
+        train_mismatches: List of per-example mismatch records (only when use_training_labels=True)
             Each element: {
                 "example_idx": int,
                 "diff_cells": List of cell-level diffs or shape mismatch record
             }
+        test_mismatches: List of per-example mismatch records (only when use_test_labels=True)
+            Same structure as train_mismatches
         error_message: Optional error message for status="error"
     """
     task_id: str
@@ -90,6 +94,10 @@ class SolveDiagnostics:
     #   "diff_cells": List[{"r": int, "c": int, "true": int, "pred": int}]
     #                or [{"shape_mismatch": True, "true_shape": tuple, "pred_shape": tuple}]
     # }
+
+    # Only for test validation (when use_test_labels=True)
+    test_mismatches: List[Dict] = field(default_factory=list)
+    # Same structure as train_mismatches
 
     # Per-schema constraint counts (M5.X)
     schema_constraint_counts: Dict[str, int] = field(default_factory=dict)
