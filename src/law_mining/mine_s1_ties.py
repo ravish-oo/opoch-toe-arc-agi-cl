@@ -122,28 +122,29 @@ def mine_S1(
             for pos in positions[1:]:
                 ties_by_example[(example_type, ex_idx)].append((anchor, pos))
 
-    # Step 5: Build SchemaInstance from ties
+    # Step 5: Build SchemaInstances from ties
+    # Create ONE SchemaInstance PER EXAMPLE (not one instance for all examples)
+    # This aligns with kernel's per-example solving architecture
     if not ties_by_example:
         return []  # No ties found
 
-    ties_param_list: List[Dict] = []
+    instances: List[SchemaInstance] = []
 
     for (example_type, ex_idx), pairs in sorted(ties_by_example.items()):
         if not pairs:
             continue
 
-        ties_param_list.append({
-            "example_type": example_type,
-            "example_index": ex_idx,
-            "pairs": pairs,
-        })
-
-    if not ties_param_list:
-        return []
-
-    # Create single SchemaInstance with all ties
-    params = {"ties": ties_param_list}
-    instances = [SchemaInstance(family_id="S1", params=params)]
+        # Create one instance per example with only that example's ties
+        instances.append(SchemaInstance(
+            family_id="S1",
+            params={
+                "ties": [{
+                    "example_type": example_type,
+                    "example_index": ex_idx,
+                    "pairs": pairs,
+                }]
+            }
+        ))
 
     return instances
 

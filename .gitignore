@@ -212,4 +212,5 @@ logs/
 
 # Catalog directory - keep folder structure but ignore JSON files
 catalog/**/*.json
+docs/human_pair_programmer_docs/results/
 

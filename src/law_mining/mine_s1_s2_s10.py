@@ -80,6 +80,16 @@ def mine_S2(
             "size_to_color": {"2": 5}
         }
     """
+    # Step 0: S2 only applies to geometry-preserving tasks
+    # If any training example has input.shape != output.shape, S2 is not applicable
+    for ex in task_context.train_examples:
+        if ex.output_grid is None:
+            continue
+        if ex.input_grid.shape != ex.output_grid.shape:
+            # S2 requires same pixel positions in input and output
+            # For non-geometry-preserving tasks (crop, summary, etc.), return []
+            return []
+
     # Step 1: Mine task-wide invariants
     # Key: (input_color, size) -> Set[output_colors]
     class_to_colors: Dict[Tuple[int, int], Set[int]] = defaultdict(set)
@@ -209,6 +219,16 @@ def mine_S10(
             "interior_color": 5
         }
     """
+    # Step 0: S10 only applies to geometry-preserving tasks
+    # If any training example has input.shape != output.shape, S10 is not applicable
+    for ex in task_context.train_examples:
+        if ex.output_grid is None:
+            continue
+        if ex.input_grid.shape != ex.output_grid.shape:
+            # S10 requires same pixel positions in input and output
+            # For non-geometry-preserving tasks (crop, summary, etc.), return []
+            return []
+
     # Step 1: Mine task-wide invariants
     # Track all border colors and interior colors seen across all train examples
     border_colors: Set[int] = set()

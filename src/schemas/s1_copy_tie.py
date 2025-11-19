@@ -64,10 +64,23 @@ def build_S1_constraints(
         # No ties specified, nothing to do
         return
 
+    # Extract current example being solved (injected by dispatch layer)
+    # Used to filter ties to only the current example
+    current_example_type = schema_params.get("example_type")
+    current_example_index = schema_params.get("example_index")
+
     for tie_group in ties:
         # 1. Select the example
         example_type = tie_group.get("example_type", "train")
         example_index = tie_group.get("example_index", 0)
+
+        # Filter ties to only the current example being solved
+        # This prevents IndexError when tie_groups contain ties from examples
+        # with different grid dimensions (e.g., ex0: 10x10, ex3: 20x20)
+        if current_example_type is not None and example_type != current_example_type:
+            continue  # Skip ties from other example types
+        if current_example_index is not None and example_index != current_example_index:
+            continue  # Skip ties from other example indices
 
         if example_type == "train":
             if example_index >= len(task_context.train_examples):
