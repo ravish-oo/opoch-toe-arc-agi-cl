@@ -46,12 +46,20 @@ def main():
         s2_instances = mine_S2(task_context, roles, role_stats)
         s10_instances = mine_S10(task_context, roles, role_stats)
 
-        print(f"  S1 instances: {len(s1_instances)} (expected 0 - not implemented)")
+        print(f"  S1 instances: {len(s1_instances)}")
         print(f"  S2 instances: {len(s2_instances)}")
         print(f"  S10 instances: {len(s10_instances)}")
 
-        # Verify S1 is empty (stub)
-        assert len(s1_instances) == 0, "S1 miner should return empty list in M6.3A"
+        # Verify S1 instances have correct structure (M6.3D)
+        for inst in s1_instances:
+            assert inst.family_id == "S1", "S1 instance should have family_id='S1'"
+            assert "ties" in inst.params, "S1 params should have 'ties'"
+            ties = inst.params["ties"]
+            assert isinstance(ties, list), "ties should be a list"
+            for tie_group in ties:
+                assert "example_type" in tie_group, "Tie group should have example_type"
+                assert "example_index" in tie_group, "Tie group should have example_index"
+                assert "pairs" in tie_group, "Tie group should have pairs"
 
         # Verify S2 instances have correct structure
         for inst in s2_instances:
@@ -70,6 +78,15 @@ def main():
             assert "interior_color" in inst.params, "S10 params should have interior_color"
 
         # Show samples
+        if s1_instances:
+            inst = s1_instances[0]
+            ties = inst.params.get("ties", [])
+            total_pairs = sum(len(t.get("pairs", [])) for t in ties)
+            print(f"\n  Sample S1 instance:")
+            print(f"    family_id: {inst.family_id}")
+            print(f"    Total tie groups: {len(ties)}")
+            print(f"    Total tie pairs: {total_pairs}")
+
         if s2_instances:
             print(f"\n  Sample S2 instance:")
             print(f"    family_id: {s2_instances[0].family_id}")

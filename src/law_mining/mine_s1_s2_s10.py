@@ -9,7 +9,7 @@ from task training examples. Each miner:
   - Never invents defaults or uses "most frequent" - only exact matches
 
 Miners in this module:
-  - mine_S1: Stub (not implemented in M6.3A)
+  - mine_S1: Tie/equality constraints for homogeneous roles (M6.3D)
   - mine_S2: Component-wise recolor based on size
   - mine_S10: Border vs interior pixel recolor
 """
@@ -33,38 +33,8 @@ from src.features.object_roles import (
     component_border_interior,
 )
 
-
-# =============================================================================
-# S1 Miner (Stub - Not Implemented in M6.3A)
-# =============================================================================
-
-def mine_S1(
-    task_context: TaskContext,
-    roles: RolesMapping,
-    role_stats: Dict[int, RoleStats],
-) -> List[SchemaInstance]:
-    """
-    S1 is the 'tie/equality' schema: it enforces that two pixels share the same color
-    (y_{p,c} = y_{q,c} for all c). It does NOT fix absolute colors.
-
-    Automatic mining of S1 (discovering which positions/roles should be tied)
-    is intentionally NOT implemented in M6.3A.
-
-    For now, the law miner relies on S2–S11 to fix colors and shape.
-    S1 tie-mining can be added later as a refinement once the core color-fixing
-    schemas are working.
-
-    Therefore this function returns an empty list in this milestone.
-
-    Args:
-        task_context: TaskContext with train/test examples
-        roles: RolesMapping from WL refinement
-        role_stats: Per-role statistics
-
-    Returns:
-        Empty list (S1 mining not implemented yet)
-    """
-    return []
+# Import S1 miner from dedicated module (M6.3D)
+from src.law_mining.mine_s1_ties import mine_S1
 
 
 # =============================================================================
@@ -331,7 +301,12 @@ if __name__ == "__main__":
     # Mine schemas
     print("\nMining S1 instances...")
     s1_instances = mine_S1(task_context, roles, role_stats)
-    print(f"✓ S1 instances: {len(s1_instances)} (expected 0 - not implemented)")
+    print(f"✓ S1 instances: {len(s1_instances)}")
+    if s1_instances:
+        ties = s1_instances[0].params.get("ties", [])
+        total_pairs = sum(len(t.get("pairs", [])) for t in ties)
+        print(f"  Total tie groups: {len(ties)}")
+        print(f"  Total tie pairs: {total_pairs}")
 
     print("\nMining S2 instances...")
     s2_instances = mine_S2(task_context, roles, role_stats)
