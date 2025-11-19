@@ -2,8 +2,8 @@
 Schema miners for S3, S4, S8, S9.
 
 This module implements algorithmic mining of always-true schema instances
-for band/stripe patterns (S3), residue-based coloring (S4), tiling (S8),
-and cross propagation (S9).
+for band/stripe patterns (S3), residue-based coloring (S4), and tiling (S8).
+S9 (cross propagation) is implemented in a dedicated module (M6.3E).
 
 Each miner:
   - Analyzes training examples for task-level invariants
@@ -15,7 +15,7 @@ Miners in this module:
   - mine_S3: Band/stripe patterns (rows/cols in same band share pattern)
   - mine_S4: Residue-class coloring (mod K stripes/checkerboards)
   - mine_S8: Tiling/replication (repeated base tile)
-  - mine_S9: Stub (cross propagation - deferred to later milestone)
+  - mine_S9: Imported from mine_s9_cross (M6.3E)
 """
 
 from __future__ import annotations
@@ -31,6 +31,9 @@ from src.law_mining.role_stats import RoleStats
 from src.catalog.types import SchemaInstance
 
 from src.features.coords_bands import row_band_labels, col_band_labels
+
+# Import S9 miner from dedicated module (M6.3E)
+from src.law_mining.mine_s9_cross import mine_S9
 
 
 # =============================================================================
@@ -446,40 +449,12 @@ def mine_S8(
 
 
 # =============================================================================
-# S9 Miner - Cross/Plus Propagation (Stub - Deferred)
+# S9 Miner - Cross/Plus Propagation
 # =============================================================================
 
-def mine_S9(
-    task_context: TaskContext,
-    roles: RolesMapping,
-    role_stats: Dict[int, RoleStats],
-) -> List[SchemaInstance]:
-    """
-    NOTE (M6.3B):
-
-    S9 ('cross/plus propagation') is a valid schema family, and its builder
-    is implemented and used by the kernel. However, the automatic mining of
-    S9 instances from training examples is intentionally NOT implemented in
-    this milestone.
-
-    Mining S9 requires a precise, invariant-based definition of plus-shape
-    seeds and directional propagation, which is non-trivial to design and
-    verify. To avoid guessing, heuristics, or 'best effort' behavior, S9
-    mining is deferred to a dedicated later milestone (M6.3D or similar).
-
-    For now, this function returns an empty list, meaning the law miner
-    does not propose any S9 schema instances yet. Any tasks that require S9
-    will remain unsolved/underconstrained until S9 mining is added properly.
-
-    Args:
-        task_context: TaskContext with train/test examples
-        roles: RolesMapping (not used)
-        role_stats: RoleStats (not used)
-
-    Returns:
-        Empty list (S9 mining not implemented yet)
-    """
-    return []
+# NOTE (M6.3E):
+# mine_S9 is implemented in src/law_mining/mine_s9_cross.py and imported above.
+# See that module for full implementation details.
 
 
 if __name__ == "__main__":
@@ -529,7 +504,10 @@ if __name__ == "__main__":
 
     print("\nMining S9 instances...")
     s9_instances = mine_S9(task_context, roles, role_stats)
-    print(f"✓ S9 instances: {len(s9_instances)} (expected 0 - not implemented)")
+    print(f"✓ S9 instances: {len(s9_instances)}")
+    if s9_instances:
+        seeds = s9_instances[0].params.get("seeds", [])
+        print(f"  Sample S9: {len(seeds)} seeds")
 
     print("\n" + "=" * 70)
     print("✓ mine_s3_s4_s8_s9.py self-test passed")

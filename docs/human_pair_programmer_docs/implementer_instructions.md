@@ -5,7 +5,7 @@ now ur role is that of implemnter.
   ---
 
   ---
-  pls understnad the wo and see if it aligns with @docs/anchors/math_kernel.md and that u hv 100% clarity on how to implement this wo 
+  pls understnad the wo and see if it aligns with @docs/anchors/math_kernel.md and @docs/anchors/math_kernel_clarifications.md and that u hv 100% clarity on how to implement this wo 
 ps the code in wo is just a sketch or for illustration only. 
   =======
 

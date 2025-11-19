@@ -123,3 +123,15 @@ If you later say “context post M2”, I’ll assume:
 
   Severity: MINOR CODE SMELL
   Recommendation: Add comment explaining it's unused, or mine it from training
+
+# miner s9 thing
+
+So, v1 S9 miner can be:
+
+“handle only classic same-color 5-pixel crosses with input seeds identifiable by a specific color/φ pattern”,
+
+as long as:
+
+we clearly document that,
+
+and we never try to approximate other variants.

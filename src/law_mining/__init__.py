@@ -8,8 +8,10 @@ Key components:
   - roles.py: WL-style refinement to assign structural role_ids
   - role_stats.py: Aggregate role statistics from train/test examples
   - mine_s1_s2_s10.py: Miners for S1, S2, S10 schemas (M6.3A)
-  - mine_s3_s4_s8_s9.py: Miners for S3, S4, S8, S9 schemas (M6.3B)
+  - mine_s3_s4_s8_s9.py: Miners for S3, S4, S8 schemas (M6.3B)
+  - mine_s9_cross.py: Miner for S9 cross/plus propagation (M6.3E)
   - mine_s5_s6_s7_s11.py: Miners for S5, S6, S7, S11 schemas (M6.3C)
+  - mine_s1_ties.py: S1 tie miner (M6.3D)
   - mine_law_config.py: Orchestrator that produces TaskLawConfig
 """
 
