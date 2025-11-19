@@ -209,3 +209,7 @@ __marimo__/
 
 data/
 logs/
+
+# Catalog directory - keep folder structure but ignore JSON files
+catalog/**/*.json
+

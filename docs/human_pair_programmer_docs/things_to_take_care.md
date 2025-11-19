@@ -135,3 +135,7 @@ as long as:
 we clearly document that,
 
 and we never try to approximate other variants.
+
+# how to run 
+CLI run (full training sweep):
+  python -m src.runners.sweep_training_with_miner
