@@ -461,3 +461,8 @@ if __name__ == "__main__":
      * call `solve_arc_task_with_diagnostics(use_training_labels=True)`,
      * expect `diagnostics.status == "ok"` for that task.
 
+# clarification 
+S1 Miner
+
+  def mine_S1(...) -> List[SchemaInstance]:
+      return []  # Not implemented in M6.3A

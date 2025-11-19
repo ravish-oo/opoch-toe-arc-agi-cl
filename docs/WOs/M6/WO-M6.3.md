@@ -438,6 +438,206 @@ M6.3D – S1 tie miner
 – never fixes colors.
 ---
 
+WO-M6.3E – Law Miner for S9 (Cross / Plus Propagation)
+
+Goal: Implement a deterministic, always-true-only miner for S9 that, for each training task, discovers cross/plus propagation laws and emits SchemaInstance objects in the exact format expected by s9_cross_propagation.py:
+
+{
+  "example_type": "train",
+  "example_index": 0,
+  "seeds": [{
+      "center": "(2,3)",             # string "r,c"
+      "up_color": 5, "down_color": None,
+      "left_color": 3, "right_color": 3,
+      "max_up": 2, "max_down": 0,
+      "max_left": 4, "max_right": 4
+  }]
+}
+
+
+File: src/law_mining/mine_s9_cross.py
+
+1. API
+def mine_S9(
+    task_context: TaskContext,
+    roles: RolesMapping,
+    role_stats: Dict[int, RoleStats],
+) -> List[SchemaInstance]:
+    """
+    Mine cross/plus propagation schemas (S9) for this task.
+    Return a list of SchemaInstance objects, one per (example_type, example_index)
+    or per seed type, in the exact param shape expected by the S9 builder.
+
+    Only emit instances that are provably always-true on all training examples.
+    If no consistent cross law is found, return an empty list.
+    """
+
+
+TaskContext, Roles, RoleStats as in M6.1/M6.2.
+
+No defaults, no “best-effort”; either schema is consistent across all train examples, or we don’t emit it.
+
+2. Stage 1 – Candidate seed detection (plus centers) on train outputs
+
+Idea: A “plus” is a characteristic 3×3 neighborhood shape in the output:
+
+center pixel with some color c0,
+
+same or related color on some subset of {up, down, left, right},
+
+background or other color elsewhere.
+
+High-level steps:
+
+For each training example ex_idx, ex:
+
+Let grid_out = ex.output_grid.
+
+Compute 3×3 neighborhoods using neighborhood_hashes(grid_out, radius=1).
+
+For each pixel (r,c) where a 3×3 neighborhood exists:
+
+Extract the 3×3 patch around (r,c) as a small 3x3 array.
+
+Check if it matches any simple plus mask template:
+
+e.g. center non-zero,
+
+at least two opposite neighbors share that color,
+
+diagonal corners are background or different.
+
+For each such match, record a candidate seed:
+
+seeds_per_example[ex_idx].append((r, c))
+
+
+Optionally, cluster seeds into “types” by their 3×3 pattern (using the hash or the raw 3×3 array), e.g.:
+
+seed_type = neighborhood_hashes[(r, c)]
+seeds_by_type[seed_type].append((ex_idx, r, c))
+
+
+(This lets you mine separate laws per cross type if needed.)
+
+3. Stage 2 – Direction/color/extent inference per seed type
+
+For each seed_type (or just globally if you skip typing):
+
+Initialize an accumulator:
+
+direction_colors: Dict[str, set[int]] = {
+    "up": set(), "down": set(), "left": set(), "right": set()
+}
+direction_lengths: Dict[str, set[int]] = {
+    "up": set(), "down": set(), "left": set(), "right": set()
+}
+
+
+For each recorded seed (ex_idx, r, c) of this type:
+
+Walk in each direction d ∈ {"up","down","left","right"} on grid_out:
+
+Starting from (r,c), move one step at a time until:
+
+you hit the grid boundary, or
+
+you hit a pixel that is not “part of the arm” (condition depends on the spec — typically: color == center color, or matching some inferred arm color).
+
+Record:
+
+the color used along that direction (if any consistent non-background color exists),
+
+the maximum extent (number of steps before stopping).
+
+Append observed colors/lengths to direction_colors[d] and direction_lengths[d].
+
+After scanning all seeds in all train examples:
+
+For each direction d:
+
+If direction_colors[d] is empty:
+
+no clear propagation in this direction → treat as None (no propagation).
+
+If len(direction_colors[d]) == 1:
+
+there is a single, consistent color_d.
+
+If len(direction_colors[d]) > 1:
+
+inconsistent behavior → this seed type cannot be mined reliably; discard this seed type.
+
+For lengths:
+
+For all seeds where direction d had propagation, collect lengths in direction_lengths[d].
+
+If lengths vary but in a consistent way, pick a well-defined rule, e.g. minimum observed length as max_d:
+
+We must be careful here: only accept if variation is consistent with training behavior (e.g. if all arms stop exactly at same relative semantic boundary).
+
+If lengths disagree in ways that cannot be reconciled (e.g. some arms are length 2, others 5 with no structural reason), discard this seed type for now.
+
+This part will be fleshed out in the expanded WO, but the invariant is:
+
+We only accept directions where both color and max extent are consistent across all seeds and training examples.
+
+4. Stage 3 – Per-example seeds → SchemaInstance params
+
+For each seed type that survives Stage 2:
+
+For each training example ex_idx:
+
+Collect seeds of this type in that example: seeds_per_example[ex_idx].
+
+For each seed (r,c):
+
+Build a per-seed param dict:
+
+seed_param = {
+    "center": f"({r},{c})",    # string, as builder expects
+    "up_color":   inferred_up_color_or_None,
+    "down_color": inferred_down_color_or_None,
+    "left_color": inferred_left_color_or_None,
+    "right_color": inferred_right_color_or_None,
+    "max_up":     max_up_steps,
+    "max_down":   max_down_steps,
+    "max_left":   max_left_steps,
+    "max_right":  max_right_steps,
+}
+
+
+Build the per-example schema_params:
+
+params = {
+    "example_type": "train",
+    "example_index": ex_idx,
+    "seeds": [seed_param, ...]
+}
+
+
+Wrap as:
+
+instances.append(SchemaInstance(family_id="S9", params=params))
+
+
+Before accepting any S9 instance, we must validate that, when passed to the S9 builder and solved together with other schemas, the resulting constraints reproduce the training outputs exactly (this is part of the global M6.4/M6.5 loop). If S9 instances produce mismatches, they must be discarded or refined; no silent keep.
+
+5. Always-true requirement
+
+At every stage, S9 miners must enforce:
+
+If there is any inconsistency in direction colors or extents across training examples for a given seed type, do not emit that schema instance.
+
+If seeds occur in some examples but not others, that’s OK if the absence is consistent with “no cross there”.
+
+But if two different seeds of the same type behave differently in outputs (e.g. one extends up 3 steps, another up 5 without structural reason), that indicates:
+
+either the schema fam is not the right model, or
+
+the miner needs a more refined notion of seed type — until then, we don’t emit S9.
+---
+
 This gives you a **structured, non-monolithic M6.3**:
 
 * **M6.3A** – S1, S2, S10 (role→color, components, frame)
