@@ -68,9 +68,13 @@ def build_S10_constraints(
             return  # Invalid index
         ex = task_context.test_examples[example_index]
 
-    # 2. Get grid dimensions and features (geometry-preserving: output = input shape)
-    H = ex.input_H
-    W = ex.input_W
+    # 2. Get grid dimensions and features
+    # S10 applies border/interior constraints to OUTPUT grid
+    # Use output dimensions for indexing into y variables
+    H = ex.output_H
+    W = ex.output_W
+    if H is None or W is None:
+        return  # No output grid to constrain
     C = task_context.C
     border_info = ex.border_info  # Dict[(r,c)] -> {"is_border": bool, "is_interior": bool}
 

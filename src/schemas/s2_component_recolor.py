@@ -82,9 +82,12 @@ def build_S2_constraints(
         return  # No mapping specified
 
     # 3. Get grid dimensions
-    # For S2 (geometry-preserving), output shape = input shape
-    H = ex.input_H
-    W = ex.input_W
+    # S2 applies component-wise recolor to OUTPUT grid
+    # Use output dimensions for indexing into y variables
+    H = ex.output_H
+    W = ex.output_W
+    if H is None or W is None:
+        return  # No output grid to constrain
 
     # 4. Process each component
     for comp in ex.components:

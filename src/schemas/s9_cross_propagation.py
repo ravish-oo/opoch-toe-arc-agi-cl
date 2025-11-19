@@ -109,6 +109,10 @@ def build_S9_constraints(
         except (ValueError, SyntaxError):
             continue  # Skip malformed seed
 
+        # Validate seed center is within output grid bounds
+        if not (0 <= r_center < H and 0 <= c_center < W):
+            continue  # Seed center not in output grid; skip this seed
+
         # Get directional colors (None means skip that direction)
         up_color = seed.get("up_color")
         down_color = seed.get("down_color")

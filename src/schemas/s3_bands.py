@@ -72,9 +72,12 @@ def build_S3_constraints(
         ex = task_context.test_examples[example_index]
 
     # 2. Get grid dimensions
-    # For S3 (geometry-preserving), output shape = input shape
-    H = ex.input_H
-    W = ex.input_W
+    # S3 applies band/stripe constraints to OUTPUT grid
+    # Use output dimensions for indexing into y variables
+    H = ex.output_H
+    W = ex.output_W
+    if H is None or W is None:
+        return  # No output grid to constrain
     C = task_context.C
 
     # 3. Row band ties (tie rows in same class)
