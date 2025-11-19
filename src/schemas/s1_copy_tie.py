@@ -92,9 +92,12 @@ def build_S1_constraints(
             ex = task_context.test_examples[example_index]
 
         # 2. Get grid dimensions
-        # For S1 (geometry-preserving), output shape = input shape
-        H = ex.input_H
-        W = ex.input_W
+        # S1 ties are output equalities; coordinates are in output space
+        # Use output dimensions for indexing into y variables
+        H = ex.output_H
+        W = ex.output_W
+        if H is None or W is None:
+            return  # No output grid to constrain
 
         # 3. Process pixel pairs
         pairs = tie_group.get("pairs", [])

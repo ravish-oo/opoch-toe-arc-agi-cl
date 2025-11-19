@@ -73,11 +73,14 @@ def build_S11_constraints(
         ex = task_context.test_examples[example_index]
 
     # 2. Get grid dimensions and features
-    # S11 is geometry-preserving, so output shape = input shape
-    H = ex.input_H
-    W = ex.input_W
+    # S11 applies local codebook to OUTPUT grid at positions detected in INPUT grid
+    # Use output dimensions for indexing into y variables
+    H = ex.output_H
+    W = ex.output_W
+    if H is None or W is None:
+        return  # No output grid to constrain
     C = task_context.C
-    nbh = ex.neighborhood_hashes  # Dict[(r,c)] -> hash_value (int)
+    nbh = ex.neighborhood_hashes  # Dict[(r,c)] -> hash_value (int) from input grid
 
     # 3. Parse hash templates from params
     raw_templates = schema_params.get("hash_templates", {})
