@@ -169,47 +169,55 @@ def solve_arc_task_with_diagnostics(
             grid_pred = y_to_grid(y, H_out, W_out, num_colors)
             train_outputs_pred.append(grid_pred)
 
-        # 3. Solve for each TEST example
+        # 3. Solve for each TEST example (with per-example exception handling)
         for i, ex in enumerate(ctx.test_examples):
-            # Determine output dimensions
-            if ex.output_H is not None:
-                H_out, W_out = ex.output_H, ex.output_W
-            else:
-                # Fallback to input dimensions (works for geometry-preserving schemas)
-                H_out, W_out = ex.input_H, ex.input_W
+            try:
+                # Determine output dimensions
+                if ex.output_H is not None:
+                    H_out, W_out = ex.output_H, ex.output_W
+                else:
+                    # Fallback to input dimensions (works for geometry-preserving schemas)
+                    H_out, W_out = ex.input_H, ex.input_W
 
-            num_pixels = H_out * W_out
-            num_colors = ctx.C
+                num_pixels = H_out * W_out
+                num_colors = ctx.C
 
-            # Build constraints for this example
-            builder = ConstraintBuilder()
-            for schema_inst in law_config.schema_instances:
-                apply_schema_instance(
-                    family_id=schema_inst.family_id,
-                    schema_params=schema_inst.params,
-                    task_context=ctx,
+                # Build constraints for this example
+                builder = ConstraintBuilder()
+                for schema_inst in law_config.schema_instances:
+                    apply_schema_instance(
+                        family_id=schema_inst.family_id,
+                        schema_params=schema_inst.params,
+                        task_context=ctx,
+                        builder=builder,
+                        example_type="test",
+                        example_index=i,
+                        schema_constraint_counts=schema_constraint_counts,
+                    )
+
+                # Track constraint/variable counts
+                total_constraints += len(builder.constraints)
+                total_variables += num_pixels * num_colors
+
+                # Solve ILP
+                y, solver_status_single = solve_constraints_for_grid(
                     builder=builder,
-                    example_type="test",
-                    example_index=i,
-                    schema_constraint_counts=schema_constraint_counts,
+                    num_pixels=num_pixels,
+                    num_colors=num_colors,
+                    objective="min_sum"
                 )
+                solver_status_str = solver_status_single
 
-            # Track constraint/variable counts
-            total_constraints += len(builder.constraints)
-            total_variables += num_pixels * num_colors
+                # Decode to grid
+                grid_pred = y_to_grid(y, H_out, W_out, num_colors)
+                test_outputs_pred.append(grid_pred)
 
-            # Solve ILP
-            y, solver_status_single = solve_constraints_for_grid(
-                builder=builder,
-                num_pixels=num_pixels,
-                num_colors=num_colors,
-                objective="min_sum"
-            )
-            solver_status_str = solver_status_single
-
-            # Decode to grid
-            grid_pred = y_to_grid(y, H_out, W_out, num_colors)
-            test_outputs_pred.append(grid_pred)
+            except Exception as e:
+                # Test example solve failed - cannot produce complete test outputs
+                status = "error"
+                error_message = f"Test solve failed for example {i}: {type(e).__name__}: {e}"
+                # Break test loop - cannot reliably compare test outputs
+                break
 
         # 4. Compare with training labels if requested
         if use_training_labels:
@@ -226,7 +234,8 @@ def solve_arc_task_with_diagnostics(
             )
 
         # Compute test mismatches if requested
-        if use_test_labels:
+        # Only proceed if we're not already in error/infeasible state
+        if use_test_labels and status not in ("error", "infeasible"):
             if solutions_path is None:
                 raise ValueError("solutions_path is required when use_test_labels=True")
 
@@ -242,19 +251,17 @@ def solve_arc_task_with_diagnostics(
             # Convert to numpy arrays
             true_test_outputs = [np.array(grid, dtype=int) for grid in true_test_outputs_raw]
 
-            # Compute test mismatches
-            if len(true_test_outputs) != len(test_outputs_pred):
-                # Number of test examples mismatch
-                test_mismatches = [{
-                    "example_idx": 0,
-                    "diff_cells": [{
-                        "shape_mismatch": True,
-                        "true_count": len(true_test_outputs),
-                        "pred_count": len(test_outputs_pred),
-                    }]
-                }]
+            # Validate we have complete test predictions before comparing
+            if len(test_outputs_pred) != len(true_test_outputs):
+                # Cannot compare - incomplete test predictions (likely due to solve failure)
+                status = "error"
+                error_message = (
+                    f"Number of test predictions ({len(test_outputs_pred)}) "
+                    f"does not match number of true test outputs ({len(true_test_outputs)}). "
+                    f"Test solving may have failed."
+                )
             else:
-                # Compare each test example
+                # Safe to compare - we have complete test predictions
                 for ex_idx in range(len(true_test_outputs)):
                     true_grid = true_test_outputs[ex_idx]
                     pred_grid = test_outputs_pred[ex_idx]
@@ -268,15 +275,18 @@ def solve_arc_task_with_diagnostics(
                         })
 
         # Set status based on mismatches (priority order)
-        # 1. Infeasible/error status set in exception handlers below
+        # 1. Error/infeasible status already set above or in exception handlers
         # 2. Train mismatch takes precedence over test mismatch
         # 3. Test mismatch only if train is clean
-        if use_training_labels and len(train_mismatches) > 0:
-            status = "mismatch_train"
-        elif use_test_labels and len(test_mismatches) > 0:
-            status = "mismatch_test"
-        else:
-            status = "ok"
+        # 4. "ok" only if no errors and all comparisons pass
+        if status not in ("error", "infeasible"):
+            # Only update status if not already in error/infeasible state
+            if use_training_labels and len(train_mismatches) > 0:
+                status = "mismatch_train"
+            elif use_test_labels and len(test_mismatches) > 0:
+                status = "mismatch_test"
+            else:
+                status = "ok"
 
     except InfeasibleModelError as e:
         # Solver couldn't find a solution

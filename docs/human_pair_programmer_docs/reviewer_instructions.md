@@ -1,3 +1,20 @@
+ so here is how process will work. u will tell me ur findings. in that u just tell me what u found and why it happens. dont reocmmend fixes. . basically we want 
+planner to give us spec faithful fixes rather than u /me specualting and guess fixes. also tell me code files that hv these problems and give m clear instruction if 
+sharing file will help planner or not. and only if i ask for report or md file u will create one..if things are too complicated to explain.. we on same page?
+
+
+
+
+
+
+
+
+
+
+
+
+
+===========
 now ur role is that of a reviewer+tester. u dont write code in core files. u can write code for testin or write scripts in scripts/
   do refer to @docs/repo_structure.md  to knw what to find whr
   ur job is to first review the code. use git status/diff to knw what files hv changed and what to review/test
