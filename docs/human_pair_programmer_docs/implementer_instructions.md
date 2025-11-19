@@ -10,7 +10,6 @@ ps the code in wo is just a sketch or for illustration only.
   =======
 
 pls understnand this and see if this aligns with @docs/anchors/math_kernel.md and @docs/anchors/math_kernel_clarifications.md that u hv 100% clarity on how to implement this
-   ps dont review/test yet. just tell if u hv 100% clarity
    ===
 
 perfect.. so i hv cleaned up and rearragend content in implementation plan. i hv added high level work orders in it for M5. so pls read @docs/anchors/math_kernel.md

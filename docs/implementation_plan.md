@@ -216,7 +216,7 @@ This is the main input to schema miners: they work at the role level, but can st
 
 ---
 
-### 🔹 WO-M6.3 – Per-schema miners: mine_S1 … mine_S11 → SchemaInstance list
+### 🔹 WO-M6.3 – Per-schema miners: mine_S1 … mine_S11 → SchemaInstance list ✅ COMPLETE
 
 **Goal:** for each schema family S1–S11, implement a miner that:
 
@@ -336,7 +336,7 @@ This is the main input to schema miners: they work at the role level, but can st
       * diagnostics (mismatches, solver_status, schemas used, etc.),
       * for later inspection / refinement.
 
-* No Pi-agent here; this is pure miner + kernel + diagnostics.
+* This is pure miner + kernel + diagnostics.
 
 > This is the **realization** of “once S1–S11 are implemented, the rest is a small law mining engine on top of φ + a tiny LP wrapper”.
 

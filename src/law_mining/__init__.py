@@ -20,6 +20,7 @@ from src.law_mining.role_stats import compute_role_stats, RoleStats
 from src.law_mining.mine_s1_s2_s10 import mine_S1, mine_S2, mine_S10
 from src.law_mining.mine_s3_s4_s8_s9 import mine_S3, mine_S4, mine_S8, mine_S9
 from src.law_mining.mine_s5_s6_s7_s11 import mine_S5, mine_S6, mine_S7, mine_S11
+from src.law_mining.mine_law_config import mine_law_config
 
 __all__ = [
     "compute_roles",
@@ -38,4 +39,5 @@ __all__ = [
     "mine_S6",
     "mine_S7",
     "mine_S11",
+    "mine_law_config",
 ]
