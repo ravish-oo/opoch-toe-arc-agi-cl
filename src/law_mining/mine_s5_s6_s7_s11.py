@@ -83,7 +83,7 @@ def mine_S5(
 
         grid_in = ex.input_grid
         grid_out = ex.output_grid
-        H, W = grid_in.shape
+        H_out, W_out = grid_out.shape
 
         # Get neighborhood hashes (already computed in ExampleContext)
         nbh = ex.neighborhood_hashes  # Dict[(r,c), int]
@@ -96,7 +96,7 @@ def mine_S5(
             c_min = c - PATCH_RADIUS
             c_max = c + PATCH_RADIUS + 1
 
-            if r_min < 0 or r_max > H or c_min < 0 or c_max > W:
+            if r_min < 0 or r_max > H_out or c_min < 0 or c_max > W_out:
                 continue  # Patch doesn't fit
 
             # Extract output patch
@@ -841,7 +841,7 @@ def mine_S11(
 
         grid_in = ex.input_grid
         grid_out = ex.output_grid
-        H, W = grid_in.shape
+        H_out, W_out = grid_out.shape
 
         # Get neighborhood hashes (already computed in ExampleContext)
         nbh = ex.neighborhood_hashes  # Dict[(r,c), int]
@@ -854,7 +854,7 @@ def mine_S11(
             c_min = c - PATCH_RADIUS
             c_max = c + PATCH_RADIUS + 1
 
-            if r_min < 0 or r_max > H or c_min < 0 or c_max > W:
+            if r_min < 0 or r_max > H_out or c_min < 0 or c_max > W_out:
                 continue  # Patch doesn't fit
 
             # Extract output patch
