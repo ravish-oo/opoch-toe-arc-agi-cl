@@ -96,4 +96,30 @@ If you later say “context post M2”, I’ll assume:
 * S1–S11 builder logic, solver, and Pi-agent loop are **not** done yet,
 * and we pick up from “implement schemas with the existing plumbing”.
 
-  
+
+
+# default fallbacks in law miners
+4. Minor Issues Found
+
+  Issue #1: S7 Defensive Fallback (mine_s5_s6_s7_s11.py:731-733)
+  if len(nonzero_colors) == 0:
+      color = 0
+  elif len(nonzero_colors) == 1:
+      color = nonzero_colors.pop()
+  else:
+      # Should not happen (we validated above)
+      color = 0  # ← Hard-coded fallback in unreachable branch
+
+  Analysis: This else should be unreachable because validation at lines 677-678 and 707-708 ensures len(nonzero_colors) is 0 or 1. However, it sets hard-coded color = 
+  0 instead of raising an error.
+
+  Severity: MINOR - defensive programming in unreachable code path
+  Recommendation: Replace with raise AssertionError("Unreachable")
+
+  Issue #2: S6 Background Color (mine_s5_s6_s7_s11.py:289, 302, 402, 423, 507, 529)
+  "background_color": 0,  # ← Always hard-coded to 0
+
+  Analysis: Not a real fallback - ALL output pixels are explicitly mapped in out_to_in, so background_color is never used. It's a vestigial parameter.
+
+  Severity: MINOR CODE SMELL
+  Recommendation: Add comment explaining it's unused, or mine it from training

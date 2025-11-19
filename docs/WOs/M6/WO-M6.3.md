@@ -432,13 +432,13 @@ For each miner module:
 
 ---
 
-M6.3D – S1 tie miner
+## M6.3D – S1 tie miner
 – Implement mine_S1 that only outputs tie constraints where training outputs force equality across roles/positions,
 – uses role_stats + TaskContext,
 – never fixes colors.
 ---
 
-WO-M6.3E – Law Miner for S9 (Cross / Plus Propagation)
+## WO-M6.3E – Law Miner for S9 (Cross / Plus Propagation)
 
 Goal: Implement a deterministic, always-true-only miner for S9 that, for each training task, discovers cross/plus propagation laws and emits SchemaInstance objects in the exact format expected by s9_cross_propagation.py:
 
