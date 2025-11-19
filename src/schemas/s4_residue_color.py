@@ -79,9 +79,12 @@ def build_S4_constraints(
         return  # No mapping specified
 
     # 3. Get grid dimensions
-    # For S4 (geometry-preserving), output shape = input shape
-    H = ex.input_H
-    W = ex.input_W
+    # S4 applies residue-based coloring to OUTPUT grid
+    # Use output dimensions for indexing into y variables
+    H = ex.output_H
+    W = ex.output_W
+    if H is None or W is None:
+        return  # No output grid to constrain
     C = task_context.C
 
     # 4. For each pixel, fix color based on residue

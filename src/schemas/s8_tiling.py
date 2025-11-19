@@ -86,9 +86,13 @@ def build_S8_constraints(
             return  # Invalid index
         ex = task_context.test_examples[example_index]
 
-    # 2. Get grid dimensions (geometry-preserving: output = input shape)
-    H = ex.input_H
-    W = ex.input_W
+    # 2. Get grid dimensions
+    # S8 tiles pattern into OUTPUT grid
+    # Use output dimensions for indexing into y variables
+    H = ex.output_H
+    W = ex.output_W
+    if H is None or W is None:
+        return  # No output grid to constrain
     C = task_context.C
 
     # 3. Parse tiling parameters
