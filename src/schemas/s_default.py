@@ -156,7 +156,7 @@ def build_S_Default_constraints(
                     c_in = int(input_grid[r, c])
                     # Validate color is in palette
                     if 0 <= c_in < C:
-                        builder.prefer_pixel_color(p_idx, c_in, weight=10.0)
+                        builder.prefer_pixel_color(p_idx, c_in, weight=1.0)
                 # else: pixel is outside input grid (expansion zone)
                 # Can't copy from non-existent input, skip preference
 
@@ -166,7 +166,7 @@ def build_S_Default_constraints(
                     target_color = int(rule.split("_")[1])
                     # Validate color is in palette
                     if 0 <= target_color < C:
-                        builder.prefer_pixel_color(p_idx, target_color, weight=10.0)
+                        builder.prefer_pixel_color(p_idx, target_color, weight=1.0)
                 except (ValueError, IndexError):
                     pass  # Malformed rule, skip
 

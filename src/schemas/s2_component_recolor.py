@@ -114,8 +114,8 @@ def build_S2_constraints(
             # Compute flat pixel index (row-major)
             p_idx = r * W + c
 
-            # Add constraint: y_{p,out_color} = 1
-            builder.fix_pixel_color(p_idx, out_color, task_context.C)
+            # Add soft preference: y_{p,out_color} (Tier 2: Object, weight 50.0)
+            builder.prefer_pixel_color(p_idx, out_color, weight=50.0)
 
 
 if __name__ == "__main__":
@@ -170,28 +170,24 @@ if __name__ == "__main__":
     builder = ConstraintBuilder()
     build_S2_constraints(ctx, params, builder)
 
-    # Verify constraints were added
-    print(f"\nConstraints added: {len(builder.constraints)}")
+    # Verify preferences were added
+    print(f"\nPreferences added: {len(builder.preferences)}")
 
     # Count components of color 1
     color_1_comps = [c for c in ex.components if c.color == 1]
     total_pixels = sum(c.size for c in color_1_comps)
     print(f"Total pixels in color-1 components: {total_pixels}")
-    print(f"Expected constraints: {total_pixels} (one per pixel)")
+    print(f"Expected preferences: {total_pixels} (one per pixel)")
 
-    assert len(builder.constraints) == total_pixels, \
-        f"Expected {total_pixels} constraints, got {len(builder.constraints)}"
+    assert len(builder.preferences) == total_pixels, \
+        f"Expected {total_pixels} preferences, got {len(builder.preferences)}"
 
-    # Inspect first constraint
-    if builder.constraints:
-        c0 = builder.constraints[0]
-        print(f"\nSample constraint (first):")
-        print(f"  indices: {c0.indices}")
-        print(f"  coeffs: {c0.coeffs}")
-        print(f"  rhs: {c0.rhs}")
-        assert len(c0.indices) == 1, "Fix constraint should have 1 index"
-        assert c0.coeffs == [1.0], "Fix constraint should have coeff [1.0]"
-        assert c0.rhs == 1.0, "Fix constraint should have rhs=1.0"
+    # Inspect first preference
+    if builder.preferences:
+        p_idx, color, weight = builder.preferences[0]
+        print(f"\nSample preference (first):")
+        print(f"  p_idx: {p_idx}, color: {color}, weight: {weight}")
+        assert weight == 50.0, "S2 preferences should have weight 50.0"
 
     print("\n" + "=" * 70)
     print("✓ S2 builder self-test passed.")

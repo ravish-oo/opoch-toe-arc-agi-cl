@@ -51,9 +51,11 @@ class ConstraintBuilder:
     Attributes:
         constraints: List of LinearConstraint objects (hard constraints)
         preferences: List of (p_idx, color, weight) tuples (soft preferences)
+        soft_ties: List of (p_idx, q_idx, C, weight) tuples (soft pixel equality)
     """
     constraints: List[LinearConstraint] = field(default_factory=list)
     preferences: List[tuple] = field(default_factory=list)  # List[(p_idx, color, weight)]
+    soft_ties: List[tuple] = field(default_factory=list)  # List[(p_idx, q_idx, C, weight)]
 
     def add_eq(self, indices: List[int], coeffs: List[float], rhs: float) -> None:
         """
@@ -162,6 +164,36 @@ class ConstraintBuilder:
             builder.prefer_pixel_color(3, 7, weight=10.0)
         """
         self.preferences.append((p_idx, color, weight))
+
+    def tie_pixel_colors_soft(self, p_idx: int, q_idx: int, C: int, weight: float = 1.0) -> None:
+        """
+        Soft preference for pixels p and q to have the same color.
+
+        This is the soft version of tie_pixel_colors. Instead of hard constraints,
+        we add a penalty in the objective function when pixels p and q have
+        different colors.
+
+        Implementation uses auxiliary binary variables d[c] in the LP solver:
+        - d[c] = 1 if y[p,c] ≠ y[q,c]
+        - d[c] = 0 if y[p,c] = y[q,c]
+
+        The objective function includes: weight * sum_c d[c]
+
+        For one-hot vectors:
+        - Same color → all d[c]=0 → penalty = 0
+        - Different colors → sum_c d[c] = 2 → penalty = 2*weight
+
+        Args:
+            p_idx: Flat pixel index for first pixel (0 <= p_idx < N)
+            q_idx: Flat pixel index for second pixel (0 <= q_idx < N)
+            C: Number of colors
+            weight: Penalty weight for violating tie (default 1.0)
+
+        Example:
+            # Soft tie between pixels 0 and 5 with high priority
+            builder.tie_pixel_colors_soft(0, 5, C=10, weight=100.0)
+        """
+        self.soft_ties.append((p_idx, q_idx, C, weight))
 
 
 def add_one_hot_constraints(builder: ConstraintBuilder, N: int, C: int) -> None:

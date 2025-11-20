@@ -6,7 +6,7 @@ This implements the S5 schema from the math kernel spec (section 2):
      For each seed type t, stamp a fixed output patch P_t around it."
 
 S5 is geometry-preserving: output has same shape as input.
-This builder applies pre-mined seed templates (from Pi-agent) as constraints.
+This builder applies pre-mined seed templates (from Pi-agent) as preferences.
 """
 
 from typing import Dict, Any, Tuple
@@ -21,7 +21,7 @@ def build_S5_constraints(
     builder: ConstraintBuilder
 ) -> None:
     """
-    Add S5 constraints: stamp templates around seed pixels.
+    Add S5 preferences: stamp templates around seed pixels.
 
     S5 detects seed pixels by their neighborhood hash and stamps
     a pre-defined template patch around each seed occurrence.
@@ -44,7 +44,7 @@ def build_S5_constraints(
     Args:
         task_context: TaskContext with all φ features and grids
         schema_params: Parameters specifying seed types and templates
-        builder: ConstraintBuilder to add constraints to
+        builder: ConstraintBuilder to add preferences to
 
     Example:
         >>> # Stamp a 2x2 blue square around pixels with hash 123456
@@ -55,7 +55,7 @@ def build_S5_constraints(
         ...         "123456": { "(0,0)": 5, "(0,1)": 5, "(1,0)": 5, "(1,1)": 5 }
         ...     }
         ... }
-        >>> build_S5_constraints(ctx, params, builder)
+        >>> build_S5_preferences(ctx, params, builder)
     """
     # 1. Select example
     example_type = schema_params.get("example_type", "train")
@@ -124,9 +124,9 @@ def build_S5_constraints(
                 if not (0 <= color < C):
                     continue  # Skip invalid colors
 
-                # Fix pixel color
+                # Prefer pixel color (Tier 3: Local, weight 10.0)
                 p_idx = rr * W + cc
-                builder.fix_pixel_color(p_idx, color, C)
+                builder.prefer_pixel_color(p_idx, color, weight=10.0)
 
 
 if __name__ == "__main__":
@@ -185,14 +185,14 @@ if __name__ == "__main__":
     }
 
     builder1 = ConstraintBuilder()
-    build_S5_constraints(ctx, params1, builder1)
+    build_S5_preferences(ctx, params1, builder1)
 
-    # Should have 2 seeds × 4 pixels/template = 8 constraints
+    # Should have 2 seeds × 4 pixels/template = 8 preferences
     # (assuming both (1,1) and (3,3) have the same hash)
-    print(f"  Constraints added: {len(builder1.constraints)}")
+    print(f"  Constraints added: {len(builder1.preferences)}")
     print(f"  Expected: 8 (2 seeds × 4 pixels each)")
-    assert len(builder1.constraints) == 8, \
-        f"Expected 8 constraints, got {len(builder1.constraints)}"
+    assert len(builder1.preferences) == 8, \
+        f"Expected 8 preferences, got {len(builder1.preferences)}"
 
     print("\nTest 2: Cross pattern template")
     print("-" * 70)
@@ -216,18 +216,18 @@ if __name__ == "__main__":
     }
 
     builder2 = ConstraintBuilder()
-    build_S5_constraints(ctx, params2, builder2)
+    build_S5_preferences(ctx, params2, builder2)
 
     # Seeds at (1,1) and (3,3), each stamps 5 pixels
     # But some may go out of bounds:
     #   (1,1): up (-1,0) → (0,1) ✓, down (1,0) → (2,1) ✓, left (0,-1) → (1,0) ✓, right (0,1) → (1,2) ✓, center (0,0) → (1,1) ✓ = 5
     #   (3,3): up → (2,3) ✓, down → (4,3) ✓, left → (3,2) ✓, right → (3,4) ✓, center → (3,3) ✓ = 5
-    # Total: 2 seeds × 5 pixels = 10 constraints
+    # Total: 2 seeds × 5 pixels = 10 preferences
     expected2 = 10
-    print(f"  Constraints added: {len(builder2.constraints)}")
+    print(f"  Constraints added: {len(builder2.preferences)}")
     print(f"  Expected: {expected2} (2 seeds × 5 pixels each)")
-    assert len(builder2.constraints) == expected2, \
-        f"Expected {expected2} constraints, got {len(builder2.constraints)}"
+    assert len(builder2.preferences) == expected2, \
+        f"Expected {expected2} preferences, got {len(builder2.preferences)}"
 
     print("\nTest 3: Template with out-of-bounds offsets")
     print("-" * 70)
@@ -246,15 +246,15 @@ if __name__ == "__main__":
     }
 
     builder3 = ConstraintBuilder()
-    build_S5_constraints(ctx, params3, builder3)
+    build_S5_preferences(ctx, params3, builder3)
 
     # Only center (0,0) is in bounds for both seeds
-    # So 2 seeds × 1 valid pixel = 2 constraints
+    # So 2 seeds × 1 valid pixel = 2 preferences
     expected3 = 2
-    print(f"  Constraints added: {len(builder3.constraints)}")
+    print(f"  Constraints added: {len(builder3.preferences)}")
     print(f"  Expected: {expected3} (only center pixels in bounds)")
-    assert len(builder3.constraints) == expected3, \
-        f"Expected {expected3} constraints, got {len(builder3.constraints)}"
+    assert len(builder3.preferences) == expected3, \
+        f"Expected {expected3} preferences, got {len(builder3.preferences)}"
 
     print("\n" + "=" * 70)
     print("✓ S5 builder self-test passed.")

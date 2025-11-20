@@ -139,6 +139,32 @@ def solve_constraints_for_grid(
             if c != pref_color:
                 objective_expr += weight * y[p_idx][c]
 
+    # Add soft ties from builder
+    # For each soft tie (p_idx, q_idx, C, weight), minimize penalty when pixels differ
+    # Implementation: use auxiliary binary variables d[c] to capture |y[p,c] - y[q,c]|
+    for tie_idx, (p_idx, q_idx, C_tie, weight) in enumerate(builder.soft_ties):
+        # Create auxiliary binary variables d[c] for this tie
+        # d[c] = 1 if y[p,c] ≠ y[q,c], else d[c] = 0
+        d = [pulp.LpVariable(f"tie_diff_{tie_idx}_{p_idx}_{q_idx}_{c}", cat=pulp.LpBinary)
+             for c in range(C_tie)]
+
+        # Add linearization constraints for |y[p,c] - y[q,c]|
+        # For binary one-hot variables, these two constraints are sufficient:
+        # - If both have color c: d[c] >= 0 and d[c] >= 0, so d[c] can be 0 (minimized)
+        # - If p=1,q=0 for color c: d[c] >= 1 and d[c] >= -1, so d[c] must be >= 1
+        # - If p=0,q=1 for color c: d[c] >= -1 and d[c] >= 1, so d[c] must be >= 1
+        # - If neither has color c: d[c] >= 0 and d[c] >= 0, so d[c] can be 0 (minimized)
+        for c in range(C_tie):
+            # d[c] >= y[p,c] - y[q,c]  (handles case where p=1, q=0)
+            prob += (d[c] >= y[p_idx][c] - y[q_idx][c])
+
+            # d[c] >= y[q,c] - y[p,c]  (handles case where p=0, q=1)
+            prob += (d[c] >= y[q_idx][c] - y[p_idx][c])
+
+        # Add penalty to objective: weight * sum_c d[c]
+        # For one-hot vectors: same color → sum d[c] = 0, different colors → sum d[c] = 2
+        objective_expr += weight * pulp.lpSum(d)
+
     # Add base objective if specified
     if objective == "min_sum":
         # Tiny regularization to break ties (yields to preferences with weight >= 0.001)

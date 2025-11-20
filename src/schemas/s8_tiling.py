@@ -6,7 +6,7 @@ This implements the S8 schema from the math kernel spec (section 2):
      For each tile position (i,j), stamp tile pattern T at that location."
 
 S8 is geometry-preserving: output has same shape as input.
-This builder applies pre-determined tiling patterns (from Pi-agent) as constraints.
+This builder applies pre-determined tiling patterns (from Pi-agent) as preferences.
 """
 
 from typing import Dict, Any, Tuple
@@ -22,7 +22,7 @@ def build_S8_constraints(
     builder: ConstraintBuilder
 ) -> None:
     """
-    Add S8 constraints: tile a pattern over a specified region.
+    Add S8 preferences: tile a pattern over a specified region.
 
     S8 replicates a base tile pattern across a rectangular region
     with specified stride (tile dimensions).
@@ -52,7 +52,7 @@ def build_S8_constraints(
     Args:
         task_context: TaskContext with all φ features and grids
         schema_params: Parameters specifying tile pattern and tiling region
-        builder: ConstraintBuilder to add constraints to
+        builder: ConstraintBuilder to add preferences to
 
     Example:
         >>> # Tile a 2x2 pattern across a 4x4 region
@@ -71,7 +71,7 @@ def build_S8_constraints(
         ...     "region_height": 4,
         ...     "region_width": 4
         ... }
-        >>> build_S8_constraints(ctx, params, builder)
+        >>> build_S8_preferences(ctx, params, builder)
     """
     # 1. Select example
     example_type = schema_params.get("example_type", "train")
@@ -141,9 +141,9 @@ def build_S8_constraints(
                 if 0 <= rr < H and 0 <= cc < W:
                     # Validate color is in palette
                     if 0 <= color < C:
-                        # Fix this pixel's color
+                        # Prefer this pixel's color (Tier 3: Local, weight 10.0)
                         p_idx = rr * W + cc
-                        builder.fix_pixel_color(p_idx, color, C)
+                        builder.prefer_pixel_color(p_idx, color, weight=10.0)
 
             tc += tile_w
         tr += tile_h
@@ -194,16 +194,16 @@ if __name__ == "__main__":
     }
 
     builder1 = ConstraintBuilder()
-    build_S8_constraints(ctx, params1, builder1)
+    build_S8_preferences(ctx, params1, builder1)
 
-    # Should have 16 constraints (4x4 grid fully tiled with 2x2 pattern)
+    # Should have 16 preferences (4x4 grid fully tiled with 2x2 pattern)
     # 2x2 tiles fit perfectly: (0,0), (0,2), (2,0), (2,2) = 4 tiles
     # Each tile has 4 pixels → 16 total
     expected1 = 16
-    print(f"  Expected: {expected1} constraints (4x4 grid, 2x2 tiles)")
-    print(f"  Actual: {len(builder1.constraints)}")
-    assert len(builder1.constraints) == expected1, \
-        f"Expected {expected1} constraints, got {len(builder1.constraints)}"
+    print(f"  Expected: {expected1} preferences (4x4 grid, 2x2 tiles)")
+    print(f"  Actual: {len(builder1.preferences)}")
+    assert len(builder1.preferences) == expected1, \
+        f"Expected {expected1} preferences, got {len(builder1.preferences)}"
 
     print("\nTest 2: Tile 3x3 pattern in partial region")
     print("-" * 70)
@@ -230,7 +230,7 @@ if __name__ == "__main__":
     }
 
     builder2 = ConstraintBuilder()
-    build_S8_constraints(ctx, params2, builder2)
+    build_S8_preferences(ctx, params2, builder2)
 
     # 3x3 tile in 4x4 region: only (0,0) origin fits fully
     # But (0,3) column is partially outside region_width=4, so we get:
@@ -251,10 +251,10 @@ if __name__ == "__main__":
     # Tile at (3,3): offset (3,3) to (5,5) → only (3,3) in bounds → 1 pixel
     # Total: 9 + 3 + 3 + 1 = 16 pixels
     expected2 = 16
-    print(f"  Expected: {expected2} constraints (partial tiling with clipping)")
-    print(f"  Actual: {len(builder2.constraints)}")
-    assert len(builder2.constraints) == expected2, \
-        f"Expected {expected2} constraints, got {len(builder2.constraints)}"
+    print(f"  Expected: {expected2} preferences (partial tiling with clipping)")
+    print(f"  Actual: {len(builder2.preferences)}")
+    assert len(builder2.preferences) == expected2, \
+        f"Expected {expected2} preferences, got {len(builder2.preferences)}"
 
     print("\nTest 3: Small region (2x2) with 1x1 tile")
     print("-" * 70)
@@ -273,16 +273,16 @@ if __name__ == "__main__":
     }
 
     builder3 = ConstraintBuilder()
-    build_S8_constraints(ctx, params3, builder3)
+    build_S8_preferences(ctx, params3, builder3)
 
     # 1x1 tile in 2x2 region starting at (1,1)
     # Tile origins: (1,1), (1,2), (2,1), (2,2)
-    # Each has 1 pixel → 4 constraints
+    # Each has 1 pixel → 4 preferences
     expected3 = 4
-    print(f"  Expected: {expected3} constraints (2x2 region, 1x1 tiles)")
-    print(f"  Actual: {len(builder3.constraints)}")
-    assert len(builder3.constraints) == expected3, \
-        f"Expected {expected3} constraints, got {len(builder3.constraints)}"
+    print(f"  Expected: {expected3} preferences (2x2 region, 1x1 tiles)")
+    print(f"  Actual: {len(builder3.preferences)}")
+    assert len(builder3.preferences) == expected3, \
+        f"Expected {expected3} preferences, got {len(builder3.preferences)}"
 
     print("\nTest 4: Empty tile pattern")
     print("-" * 70)
@@ -299,13 +299,13 @@ if __name__ == "__main__":
     }
 
     builder4 = ConstraintBuilder()
-    build_S8_constraints(ctx, params4, builder4)
+    build_S8_preferences(ctx, params4, builder4)
 
     expected4 = 0
-    print(f"  Expected: {expected4} constraints (empty pattern)")
-    print(f"  Actual: {len(builder4.constraints)}")
-    assert len(builder4.constraints) == expected4, \
-        f"Expected {expected4} constraints, got {len(builder4.constraints)}"
+    print(f"  Expected: {expected4} preferences (empty pattern)")
+    print(f"  Actual: {len(builder4.preferences)}")
+    assert len(builder4.preferences) == expected4, \
+        f"Expected {expected4} preferences, got {len(builder4.preferences)}"
 
     print("\n" + "=" * 70)
     print("✓ S8 builder self-test passed.")

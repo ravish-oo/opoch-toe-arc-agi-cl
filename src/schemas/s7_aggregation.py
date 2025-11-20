@@ -115,8 +115,8 @@ def build_S7_constraints(
         # IMPORTANT: S7 is NOT geometry-preserving!
         p_idx_out = r_out * output_W + c_out
 
-        # Fix this output pixel's color to the summary color
-        builder.fix_pixel_color(p_idx_out, color, C)
+        # Prefer this output pixel's color to the summary color (Tier 1: Structure, weight 100.0)
+        builder.prefer_pixel_color(p_idx_out, color, weight=100.0)
 
 
 if __name__ == "__main__":
@@ -162,18 +162,18 @@ if __name__ == "__main__":
     builder1 = ConstraintBuilder()
     build_S7_constraints(ctx, params1, builder1)
 
-    # Should have 4 constraints (one per summary cell)
+    # Should have 4 preferences (one per summary cell)
     expected1 = 4
-    print(f"  Expected: {expected1} constraints (2x2 summary)")
-    print(f"  Actual: {len(builder1.constraints)}")
-    assert len(builder1.constraints) == expected1, \
-        f"Expected {expected1} constraints, got {len(builder1.constraints)}"
+    print(f"  Expected: {expected1} preferences (2x2 summary)")
+    print(f"  Actual: {len(builder1.preferences)}")
+    assert len(builder1.preferences) == expected1, \
+        f"Expected {expected1} preferences, got {len(builder1.preferences)}"
 
-    # Inspect constraints
-    print(f"\n  Sample constraints:")
-    for i in range(min(4, len(builder1.constraints))):
-        c = builder1.constraints[i]
-        print(f"    Constraint {i}: indices={c.indices}, coeffs={c.coeffs}, rhs={c.rhs}")
+    # Inspect preferences
+    print(f"\n  Sample preferences:")
+    for i in range(min(4, len(builder1.preferences))):
+        p_idx, color, weight = builder1.preferences[i]
+        print(f"    Preference {i}: p_idx={p_idx}, color={color}, weight={weight}")
 
     print("\nTest 2: Partial summary (some cells unmapped)")
     print("-" * 70)
@@ -194,12 +194,12 @@ if __name__ == "__main__":
     builder2 = ConstraintBuilder()
     build_S7_constraints(ctx, params2, builder2)
 
-    # Should have 3 constraints (only 3 cells defined)
+    # Should have 3 preferences (only 3 cells defined)
     expected2 = 3
-    print(f"  Expected: {expected2} constraints (3 cells mapped)")
-    print(f"  Actual: {len(builder2.constraints)}")
-    assert len(builder2.constraints) == expected2, \
-        f"Expected {expected2} constraints, got {len(builder2.constraints)}"
+    print(f"  Expected: {expected2} preferences (3 cells mapped)")
+    print(f"  Actual: {len(builder2.preferences)}")
+    assert len(builder2.preferences) == expected2, \
+        f"Expected {expected2} preferences, got {len(builder2.preferences)}"
 
     print("\nTest 3: Out-of-bounds summary coords (should be skipped)")
     print("-" * 70)
@@ -221,12 +221,12 @@ if __name__ == "__main__":
     builder3 = ConstraintBuilder()
     build_S7_constraints(ctx, params3, builder3)
 
-    # Should have 3 constraints (2 out-of-bounds skipped)
+    # Should have 3 preferences (2 out-of-bounds skipped)
     expected3 = 3
-    print(f"  Expected: {expected3} constraints (2 out-of-bounds skipped)")
-    print(f"  Actual: {len(builder3.constraints)}")
-    assert len(builder3.constraints) == expected3, \
-        f"Expected {expected3} constraints, got {len(builder3.constraints)}"
+    print(f"  Expected: {expected3} preferences (2 out-of-bounds skipped)")
+    print(f"  Actual: {len(builder3.preferences)}")
+    assert len(builder3.preferences) == expected3, \
+        f"Expected {expected3} preferences, got {len(builder3.preferences)}"
 
     print("\nTest 4: Empty summary colors")
     print("-" * 70)
@@ -243,10 +243,10 @@ if __name__ == "__main__":
     build_S7_constraints(ctx, params4, builder4)
 
     expected4 = 0
-    print(f"  Expected: {expected4} constraints (no summaries)")
-    print(f"  Actual: {len(builder4.constraints)}")
-    assert len(builder4.constraints) == expected4, \
-        f"Expected {expected4} constraints, got {len(builder4.constraints)}"
+    print(f"  Expected: {expected4} preferences (no summaries)")
+    print(f"  Actual: {len(builder4.preferences)}")
+    assert len(builder4.preferences) == expected4, \
+        f"Expected {expected4} preferences, got {len(builder4.preferences)}"
 
     print("\nTest 5: Invalid colors (should be skipped)")
     print("-" * 70)
@@ -267,12 +267,12 @@ if __name__ == "__main__":
     builder5 = ConstraintBuilder()
     build_S7_constraints(ctx, params5, builder5)
 
-    # Should have 2 constraints (2 invalid colors skipped)
+    # Should have 2 preferences (2 invalid colors skipped)
     expected5 = 2
-    print(f"  Expected: {expected5} constraints (2 invalid colors skipped)")
-    print(f"  Actual: {len(builder5.constraints)}")
-    assert len(builder5.constraints) == expected5, \
-        f"Expected {expected5} constraints, got {len(builder5.constraints)}"
+    print(f"  Expected: {expected5} preferences (2 invalid colors skipped)")
+    print(f"  Actual: {len(builder5.preferences)}")
+    assert len(builder5.preferences) == expected5, \
+        f"Expected {expected5} preferences, got {len(builder5.preferences)}"
 
     print("\n" + "=" * 70)
     print("✓ S7 builder self-test passed.")

@@ -6,7 +6,7 @@ This implements the S9 schema from the math kernel spec (section 2):
      For each seed, paint spokes (up/down/left/right) with specified colors."
 
 S9 is geometry-preserving: output has same shape as input.
-This builder applies pre-determined cross seeds and propagation rules (from Pi-agent) as constraints.
+This builder applies pre-determined cross seeds and propagation rules (from Pi-agent) as preferences.
 """
 
 from typing import Dict, Any, List
@@ -22,7 +22,7 @@ def build_S9_constraints(
     builder: ConstraintBuilder
 ) -> None:
     """
-    Add S9 constraints: propagate colors in cardinal directions from seeds.
+    Add S9 preferences: propagate colors in cardinal directions from seeds.
 
     S9 creates cross/plus patterns by propagating colors along four
     cardinal directions (up, down, left, right) from specified seed centers.
@@ -56,7 +56,7 @@ def build_S9_constraints(
     Args:
         task_context: TaskContext with all φ features and grids
         schema_params: Parameters specifying seeds and propagation rules
-        builder: ConstraintBuilder to add constraints to
+        builder: ConstraintBuilder to add preferences to
 
     Example:
         >>> # Cross pattern from center (2,2) with different colors in each direction
@@ -75,7 +75,7 @@ def build_S9_constraints(
         ...         "max_right": 2
         ...     }]
         ... }
-        >>> build_S9_constraints(ctx, params, builder)
+        >>> build_S9_preferences(ctx, params, builder)
     """
     # 1. Select example
     example_type = schema_params.get("example_type", "train")
@@ -135,7 +135,7 @@ def build_S9_constraints(
                     if rr < 0:
                         break  # Hit top boundary
                     p_idx = rr * W + cc
-                    builder.fix_pixel_color(p_idx, color, C)
+                    builder.prefer_pixel_color(p_idx, color, weight=50.0)
 
         # 5. Propagate downward (increasing row)
         if down_color is not None:
@@ -147,7 +147,7 @@ def build_S9_constraints(
                     if rr >= H:
                         break  # Hit bottom boundary
                     p_idx = rr * W + cc
-                    builder.fix_pixel_color(p_idx, color, C)
+                    builder.prefer_pixel_color(p_idx, color, weight=50.0)
 
         # 6. Propagate leftward (decreasing col)
         if left_color is not None:
@@ -159,7 +159,7 @@ def build_S9_constraints(
                     if cc < 0:
                         break  # Hit left boundary
                     p_idx = rr * W + cc
-                    builder.fix_pixel_color(p_idx, color, C)
+                    builder.prefer_pixel_color(p_idx, color, weight=50.0)
 
         # 7. Propagate rightward (increasing col)
         if right_color is not None:
@@ -171,7 +171,7 @@ def build_S9_constraints(
                     if cc >= W:
                         break  # Hit right boundary
                     p_idx = rr * W + cc
-                    builder.fix_pixel_color(p_idx, color, C)
+                    builder.prefer_pixel_color(p_idx, color, weight=50.0)
 
 
 if __name__ == "__main__":
@@ -218,7 +218,7 @@ if __name__ == "__main__":
     }
 
     builder1 = ConstraintBuilder()
-    build_S9_constraints(ctx, params1, builder1)
+    build_S9_preferences(ctx, params1, builder1)
 
     # Up: (1,2), (0,2) = 2 pixels
     # Down: (3,2), (4,2) = 2 pixels
@@ -226,10 +226,10 @@ if __name__ == "__main__":
     # Right: (2,3), (2,4) = 2 pixels
     # Total: 8 pixels (center not included)
     expected1 = 8
-    print(f"  Expected: {expected1} constraints (cross with 2 steps each direction)")
-    print(f"  Actual: {len(builder1.constraints)}")
-    assert len(builder1.constraints) == expected1, \
-        f"Expected {expected1} constraints, got {len(builder1.constraints)}"
+    print(f"  Expected: {expected1} preferences (cross with 2 steps each direction)")
+    print(f"  Actual: {len(builder1.preferences)}")
+    assert len(builder1.preferences) == expected1, \
+        f"Expected {expected1} preferences, got {len(builder1.preferences)}"
 
     print("\nTest 2: Partial cross (only up and right)")
     print("-" * 70)
@@ -251,15 +251,15 @@ if __name__ == "__main__":
     }
 
     builder2 = ConstraintBuilder()
-    build_S9_constraints(ctx, params2, builder2)
+    build_S9_preferences(ctx, params2, builder2)
 
     # Up: 2 pixels, Right: 2 pixels
     # Total: 4 pixels
     expected2 = 4
-    print(f"  Expected: {expected2} constraints (only up and right)")
-    print(f"  Actual: {len(builder2.constraints)}")
-    assert len(builder2.constraints) == expected2, \
-        f"Expected {expected2} constraints, got {len(builder2.constraints)}"
+    print(f"  Expected: {expected2} preferences (only up and right)")
+    print(f"  Actual: {len(builder2.preferences)}")
+    assert len(builder2.preferences) == expected2, \
+        f"Expected {expected2} preferences, got {len(builder2.preferences)}"
 
     print("\nTest 3: Cross hitting boundaries")
     print("-" * 70)
@@ -282,7 +282,7 @@ if __name__ == "__main__":
     }
 
     builder3 = ConstraintBuilder()
-    build_S9_constraints(ctx, params3, builder3)
+    build_S9_preferences(ctx, params3, builder3)
 
     # Up: 0 pixels (already at top)
     # Down: min(10, 4) = 4 pixels (rows 1-4)
@@ -290,10 +290,10 @@ if __name__ == "__main__":
     # Right: min(10, 4) = 4 pixels (cols 1-4)
     # Total: 8 pixels
     expected3 = 8
-    print(f"  Expected: {expected3} constraints (boundary clipping)")
-    print(f"  Actual: {len(builder3.constraints)}")
-    assert len(builder3.constraints) == expected3, \
-        f"Expected {expected3} constraints, got {len(builder3.constraints)}"
+    print(f"  Expected: {expected3} preferences (boundary clipping)")
+    print(f"  Actual: {len(builder3.preferences)}")
+    assert len(builder3.preferences) == expected3, \
+        f"Expected {expected3} preferences, got {len(builder3.preferences)}"
 
     print("\nTest 4: Multiple seeds")
     print("-" * 70)
@@ -328,16 +328,16 @@ if __name__ == "__main__":
     }
 
     builder4 = ConstraintBuilder()
-    build_S9_constraints(ctx, params4, builder4)
+    build_S9_preferences(ctx, params4, builder4)
 
     # Seed 1: up 1 step = 1 pixel
     # Seed 2: down 1 step = 1 pixel
     # Total: 2 pixels
     expected4 = 2
-    print(f"  Expected: {expected4} constraints (2 seeds, 1 pixel each)")
-    print(f"  Actual: {len(builder4.constraints)}")
-    assert len(builder4.constraints) == expected4, \
-        f"Expected {expected4} constraints, got {len(builder4.constraints)}"
+    print(f"  Expected: {expected4} preferences (2 seeds, 1 pixel each)")
+    print(f"  Actual: {len(builder4.preferences)}")
+    assert len(builder4.preferences) == expected4, \
+        f"Expected {expected4} preferences, got {len(builder4.preferences)}"
 
     print("\n" + "=" * 70)
     print("✓ S9 builder self-test passed.")

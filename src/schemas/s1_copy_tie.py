@@ -118,8 +118,8 @@ def build_S1_constraints(
             p_idx1 = r1 * W + c1
             p_idx2 = r2 * W + c2
 
-            # Add tie constraints: y_{p1,c} - y_{p2,c} = 0 for all c
-            builder.tie_pixel_colors(p_idx1, p_idx2, task_context.C)
+            # Add soft tie: prefer y_{p1,c} = y_{p2,c} for all c (Tier 1: Structure, weight 100.0)
+            builder.tie_pixel_colors_soft(p_idx1, p_idx2, task_context.C, weight=100.0)
 
 
 if __name__ == "__main__":
@@ -166,27 +166,26 @@ if __name__ == "__main__":
     builder = ConstraintBuilder()
     build_S1_constraints(ctx, params, builder)
 
-    # Verify constraints were added
-    # Each tie adds C constraints (one per color)
-    # 2 pairs × 5 colors = 10 constraints
-    expected_constraints = 2 * ctx.C
-    actual_constraints = len(builder.constraints)
+    # Verify soft ties were added
+    # Each tie adds 1 soft tie entry (handled by LP solver with auxiliary vars)
+    # 2 pairs = 2 soft ties
+    expected_soft_ties = 2
+    actual_soft_ties = len(builder.soft_ties)
 
-    print(f"Expected constraints: {expected_constraints}")
-    print(f"Actual constraints: {actual_constraints}")
+    print(f"Expected soft ties: {expected_soft_ties}")
+    print(f"Actual soft ties: {actual_soft_ties}")
 
-    assert actual_constraints == expected_constraints, \
-        f"Expected {expected_constraints} constraints, got {actual_constraints}"
+    assert actual_soft_ties == expected_soft_ties, \
+        f"Expected {expected_soft_ties} soft ties, got {actual_soft_ties}"
 
-    # Inspect first constraint
-    if builder.constraints:
-        c0 = builder.constraints[0]
-        print(f"\nSample constraint (first):")
-        print(f"  indices: {c0.indices}")
-        print(f"  coeffs: {c0.coeffs}")
-        print(f"  rhs: {c0.rhs}")
-        assert c0.coeffs == [1.0, -1.0], "Tie constraint should have coeffs [1, -1]"
-        assert c0.rhs == 0.0, "Tie constraint should have rhs=0"
+    # Inspect first soft tie
+    if builder.soft_ties:
+        p_idx, q_idx, C_tie, weight = builder.soft_ties[0]
+        print(f"\nSample soft tie (first):")
+        print(f"  p_idx: {p_idx}, q_idx: {q_idx}")
+        print(f"  C: {C_tie}, weight: {weight}")
+        assert C_tie == ctx.C, f"Soft tie should have C={ctx.C}"
+        assert weight == 100.0, f"S1 soft ties should have weight 100.0"
 
     print("\n" + "=" * 70)
     print("✓ S1 builder self-test passed.")

@@ -6,7 +6,7 @@ This implements the S4 schema from the math kernel spec (section 2):
      For each pixel p: ∀c ≠ h(c(p) mod K): y_{(p,c)} = 0"
 
 S4 is geometry-preserving: output has same shape as input.
-This builder applies pre-mined residue→color mappings (from Pi-agent) as constraints.
+This builder applies pre-mined residue→color mappings (from Pi-agent) as preferences.
 """
 
 from typing import Dict, Any
@@ -21,7 +21,7 @@ def build_S4_constraints(
     builder: ConstraintBuilder
 ) -> None:
     """
-    Add S4 constraints: fix pixel colors based on coordinate residues.
+    Add S4 preferences: fix pixel colors based on coordinate residues.
 
     S4 enforces that pixel colors are determined purely by the residue
     of their row or column index modulo K.
@@ -44,7 +44,7 @@ def build_S4_constraints(
     Args:
         task_context: TaskContext with all φ features and grids
         schema_params: Parameters specifying axis, modulus, and color mapping
-        builder: ConstraintBuilder to add constraints to
+        builder: ConstraintBuilder to add preferences to
 
     Example:
         >>> # Even columns get color 1, odd columns get color 3
@@ -55,7 +55,7 @@ def build_S4_constraints(
         ...     "K": 2,
         ...     "residue_to_color": {"0": 1, "1": 3}
         ... }
-        >>> build_S4_constraints(ctx, params, builder)
+        >>> build_S4_preferences(ctx, params, builder)
     """
     # 1. Select example
     example_type = schema_params.get("example_type", "train")
@@ -119,9 +119,9 @@ def build_S4_constraints(
             if not (0 <= color < C):
                 continue
 
-            # Fix this pixel's color
+            # Prefer this pixel's color (Tier 3: Local, weight 10.0)
             p_idx = r * W + c
-            builder.fix_pixel_color(p_idx, color, C)
+            builder.prefer_pixel_color(p_idx, color, weight=10.0)
 
 
 if __name__ == "__main__":
@@ -163,18 +163,18 @@ if __name__ == "__main__":
     }
 
     builder1 = ConstraintBuilder()
-    build_S4_constraints(ctx, params1, builder1)
+    build_S4_preferences(ctx, params1, builder1)
 
-    # Should have 16 constraints (4x4 grid = 16 pixels, one fix per pixel)
+    # Should have 16 preferences (4x4 grid = 16 pixels, one fix per pixel)
     expected1 = 16
-    print(f"  Expected: {expected1} constraints (one per pixel)")
-    print(f"  Actual: {len(builder1.constraints)}")
-    assert len(builder1.constraints) == expected1
+    print(f"  Expected: {expected1} preferences (one per pixel)")
+    print(f"  Actual: {len(builder1.preferences)}")
+    assert len(builder1.preferences) == expected1
 
-    # Inspect a few constraints
-    print("\n  Sample constraints:")
-    for i in range(min(4, len(builder1.constraints))):
-        c = builder1.constraints[i]
+    # Inspect a few preferences
+    print("\n  Sample preferences:")
+    for i in range(min(4, len(builder1.preferences))):
+        c = builder1.preferences[i]
         print(f"    Constraint {i}: indices={c.indices}, coeffs={c.coeffs}, rhs={c.rhs}")
 
     print("\nTest 2: Row residue mod 2 (even/odd rows)")
@@ -191,13 +191,13 @@ if __name__ == "__main__":
     }
 
     builder2 = ConstraintBuilder()
-    build_S4_constraints(ctx, params2, builder2)
+    build_S4_preferences(ctx, params2, builder2)
 
-    # Should have 16 constraints (4x4 grid = 16 pixels)
+    # Should have 16 preferences (4x4 grid = 16 pixels)
     expected2 = 16
-    print(f"  Expected: {expected2} constraints (one per pixel)")
-    print(f"  Actual: {len(builder2.constraints)}")
-    assert len(builder2.constraints) == expected2
+    print(f"  Expected: {expected2} preferences (one per pixel)")
+    print(f"  Actual: {len(builder2.preferences)}")
+    assert len(builder2.preferences) == expected2
 
     print("\nTest 3: Column residue mod 4 (partial mapping)")
     print("-" * 70)
@@ -214,13 +214,13 @@ if __name__ == "__main__":
     }
 
     builder3 = ConstraintBuilder()
-    build_S4_constraints(ctx, params3, builder3)
+    build_S4_preferences(ctx, params3, builder3)
 
-    # Should have 8 constraints (only cols 0 and 2 mapped, 4 rows × 2 cols = 8)
+    # Should have 8 preferences (only cols 0 and 2 mapped, 4 rows × 2 cols = 8)
     expected3 = 8
-    print(f"  Expected: {expected3} constraints (only cols 0,2 mapped × 4 rows)")
-    print(f"  Actual: {len(builder3.constraints)}")
-    assert len(builder3.constraints) == expected3
+    print(f"  Expected: {expected3} preferences (only cols 0,2 mapped × 4 rows)")
+    print(f"  Actual: {len(builder3.preferences)}")
+    assert len(builder3.preferences) == expected3
 
     print("\n" + "=" * 70)
     print("✓ S4 builder self-test passed.")

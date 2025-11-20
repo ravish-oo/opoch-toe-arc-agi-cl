@@ -101,7 +101,7 @@ def build_S3_constraints(
                 for c in range(W):
                     p_idx1 = r1 * W + c
                     p_idx2 = r2 * W + c
-                    builder.tie_pixel_colors(p_idx1, p_idx2, C)
+                    builder.tie_pixel_colors_soft(p_idx1, p_idx2, C, weight=10.0)
 
     # 4. Column band ties (tie columns in same class)
     col_classes = schema_params.get("col_classes", [])
@@ -124,7 +124,7 @@ def build_S3_constraints(
                 for r in range(H):
                     p_idx1 = r * W + c1
                     p_idx2 = r * W + c2
-                    builder.tie_pixel_colors(p_idx1, p_idx2, C)
+                    builder.tie_pixel_colors_soft(p_idx1, p_idx2, C, weight=10.0)
 
     # 5. Column periodicity (tie columns with period K)
     col_period_K = schema_params.get("col_period_K")
@@ -137,7 +137,7 @@ def build_S3_constraints(
                 if c2 < W:
                     p_idx1 = r * W + c
                     p_idx2 = r * W + c2
-                    builder.tie_pixel_colors(p_idx1, p_idx2, C)
+                    builder.tie_pixel_colors_soft(p_idx1, p_idx2, C, weight=10.0)
 
     # 6. Row periodicity (tie rows with period K)
     row_period_K = schema_params.get("row_period_K")
@@ -150,7 +150,7 @@ def build_S3_constraints(
                 if r2 < H:
                     p_idx1 = r * W + c
                     p_idx2 = r2 * W + c
-                    builder.tie_pixel_colors(p_idx1, p_idx2, C)
+                    builder.tie_pixel_colors_soft(p_idx1, p_idx2, C, weight=10.0)
 
 
 if __name__ == "__main__":
@@ -188,11 +188,11 @@ if __name__ == "__main__":
     builder1 = ConstraintBuilder()
     build_S3_constraints(ctx, params1, builder1)
 
-    # Should have 4 columns × 10 colors = 40 tie constraints
-    expected1 = 4 * ctx.C
-    print(f"  Expected: {expected1} constraints (4 columns × {ctx.C} colors)")
-    print(f"  Actual: {len(builder1.constraints)}")
-    assert len(builder1.constraints) == expected1
+    # Should have 4 soft ties (one per row pair)
+    expected1 = 4
+    print(f"  Expected: {expected1} soft ties (4 row pairs)")
+    print(f"  Actual: {len(builder1.soft_ties)}")
+    assert len(builder1.soft_ties) == expected1
 
     print("\nTest 2: Column classes (tie cols 0 and 2)")
     print("-" * 70)
@@ -208,11 +208,11 @@ if __name__ == "__main__":
     builder2 = ConstraintBuilder()
     build_S3_constraints(ctx, params2, builder2)
 
-    # Should have 4 rows × 10 colors = 40 tie constraints
-    expected2 = 4 * ctx.C
-    print(f"  Expected: {expected2} constraints (4 rows × {ctx.C} colors)")
-    print(f"  Actual: {len(builder2.constraints)}")
-    assert len(builder2.constraints) == expected2
+    # Should have 4 soft ties (one per column pair)
+    expected2 = 4
+    print(f"  Expected: {expected2} soft ties (4 column pairs)")
+    print(f"  Actual: {len(builder2.soft_ties)}")
+    assert len(builder2.soft_ties) == expected2
 
     print("\nTest 3: Column periodicity K=2 (even/odd columns)")
     print("-" * 70)
@@ -233,11 +233,11 @@ if __name__ == "__main__":
     # Row 1: tie (1,0)↔(1,2), (1,1)↔(1,3)  = 2 ties
     # Row 2: tie (2,0)↔(2,2), (2,1)↔(2,3)  = 2 ties
     # Row 3: tie (3,0)↔(3,2), (3,1)↔(3,3)  = 2 ties
-    # Total: 8 ties × 10 colors = 80 constraints
-    expected3 = 8 * ctx.C
-    print(f"  Expected: {expected3} constraints (8 ties × {ctx.C} colors)")
-    print(f"  Actual: {len(builder3.constraints)}")
-    assert len(builder3.constraints) == expected3
+    # Total: 8 soft ties
+    expected3 = 8
+    print(f"  Expected: {expected3} soft ties (8 pixel pairs)")
+    print(f"  Actual: {len(builder3.soft_ties)}")
+    assert len(builder3.soft_ties) == expected3
 
     print("\n" + "=" * 70)
     print("✓ S3 builder self-test passed.")

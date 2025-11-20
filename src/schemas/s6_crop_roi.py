@@ -143,8 +143,8 @@ def build_S6_constraints(
             if not (0 <= color < C):
                 color = background
 
-            # Fix this output pixel's color
-            builder.fix_pixel_color(p_idx_out, color, C)
+            # Prefer this output pixel's color (Tier 1: Structure, weight 100.0)
+            builder.prefer_pixel_color(p_idx_out, color, weight=100.0)
 
 
 if __name__ == "__main__":
@@ -192,18 +192,18 @@ if __name__ == "__main__":
     builder1 = ConstraintBuilder()
     build_S6_constraints(ctx, params1, builder1)
 
-    # Should have 4 constraints (one per output pixel)
+    # Should have 4 preferences (one per output pixel)
     expected1 = 4
-    print(f"  Expected: {expected1} constraints (2x2 output)")
-    print(f"  Actual: {len(builder1.constraints)}")
-    assert len(builder1.constraints) == expected1, \
-        f"Expected {expected1} constraints, got {len(builder1.constraints)}"
+    print(f"  Expected: {expected1} preferences (2x2 output)")
+    print(f"  Actual: {len(builder1.preferences)}")
+    assert len(builder1.preferences) == expected1, \
+        f"Expected {expected1} preferences, got {len(builder1.preferences)}"
 
-    # Inspect constraints to verify colors
-    print(f"\n  Sample constraints:")
-    for i in range(min(4, len(builder1.constraints))):
-        c = builder1.constraints[i]
-        print(f"    Constraint {i}: indices={c.indices}, coeffs={c.coeffs}, rhs={c.rhs}")
+    # Inspect preferences to verify structure
+    print(f"\n  Sample preferences:")
+    for i in range(min(4, len(builder1.preferences))):
+        p_idx, color, weight = builder1.preferences[i]
+        print(f"    Preference {i}: p_idx={p_idx}, color={color}, weight={weight}")
 
     print("\nTest 2: Crop with background pixels")
     print("-" * 70)
@@ -223,13 +223,13 @@ if __name__ == "__main__":
     builder2 = ConstraintBuilder()
     build_S6_constraints(ctx, params2, builder2)
 
-    # Should have 9 constraints (3x3 output)
+    # Should have 9 preferences (3x3 output)
     # 8 pixels set to background (9), 1 pixel set to input color (1)
     expected2 = 9
-    print(f"  Expected: {expected2} constraints (3x3 output)")
-    print(f"  Actual: {len(builder2.constraints)}")
-    assert len(builder2.constraints) == expected2, \
-        f"Expected {expected2} constraints, got {len(builder2.constraints)}"
+    print(f"  Expected: {expected2} preferences (3x3 output)")
+    print(f"  Actual: {len(builder2.preferences)}")
+    assert len(builder2.preferences) == expected2, \
+        f"Expected {expected2} preferences, got {len(builder2.preferences)}"
 
     print("\nTest 3: Out-of-bounds input mapping")
     print("-" * 70)
@@ -253,10 +253,10 @@ if __name__ == "__main__":
     build_S6_constraints(ctx, params3, builder3)
 
     expected3 = 4
-    print(f"  Expected: {expected3} constraints (2x2 output)")
-    print(f"  Actual: {len(builder3.constraints)}")
-    assert len(builder3.constraints) == expected3, \
-        f"Expected {expected3} constraints, got {len(builder3.constraints)}"
+    print(f"  Expected: {expected3} preferences (2x2 output)")
+    print(f"  Actual: {len(builder3.preferences)}")
+    assert len(builder3.preferences) == expected3, \
+        f"Expected {expected3} preferences, got {len(builder3.preferences)}"
 
     print("\nTest 4: Empty mapping (all background)")
     print("-" * 70)
@@ -274,10 +274,10 @@ if __name__ == "__main__":
     build_S6_constraints(ctx, params4, builder4)
 
     expected4 = 4
-    print(f"  Expected: {expected4} constraints (all background)")
-    print(f"  Actual: {len(builder4.constraints)}")
-    assert len(builder4.constraints) == expected4, \
-        f"Expected {expected4} constraints, got {len(builder4.constraints)}"
+    print(f"  Expected: {expected4} preferences (all background)")
+    print(f"  Actual: {len(builder4.preferences)}")
+    assert len(builder4.preferences) == expected4, \
+        f"Expected {expected4} preferences, got {len(builder4.preferences)}"
 
     print("\n" + "=" * 70)
     print("✓ S6 builder self-test passed.")

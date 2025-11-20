@@ -6,7 +6,7 @@ This implements the S11 schema from the math kernel spec (section 2):
      via a learned codebook H → P. Acts as safety net for any local weirdness."
 
 S11 is geometry-preserving: output has same shape as input.
-This builder applies pre-mined hash-to-template mappings (from Pi-agent) as constraints.
+This builder applies pre-mined hash-to-template mappings (from Pi-agent) as preferences.
 """
 
 from typing import Dict, Any, Tuple
@@ -21,7 +21,7 @@ def build_S11_constraints(
     builder: ConstraintBuilder
 ) -> None:
     """
-    Add S11 constraints: apply template based on neighborhood hash.
+    Add S11 preferences: apply template based on neighborhood hash.
 
     S11 treats each 3×3 neighborhood hash as a symbol and maps it to
     an output template. This is more general than S5 (which only stamps
@@ -46,7 +46,7 @@ def build_S11_constraints(
     Args:
         task_context: TaskContext with all φ features and grids
         schema_params: Parameters specifying hash types and templates
-        builder: ConstraintBuilder to add constraints to
+        builder: ConstraintBuilder to add preferences to
 
     Example:
         >>> # For all pixels with hash 123456, rewrite their 2x2 neighborhood
@@ -57,7 +57,7 @@ def build_S11_constraints(
         ...         "123456": { "(0,0)": 5, "(0,1)": 5, "(1,0)": 5, "(1,1)": 5 }
         ...     }
         ... }
-        >>> build_S11_constraints(ctx, params, builder)
+        >>> build_S11_preferences(ctx, params, builder)
     """
     # 1. Select example
     example_type = schema_params.get("example_type", "train")
@@ -126,9 +126,9 @@ def build_S11_constraints(
                 if not (0 <= color < C):
                     continue  # Skip invalid colors
 
-                # Fix pixel color
+                # Prefer pixel color (Tier 3: Local, weight 10.0)
                 p_idx = rr * W + cc
-                builder.fix_pixel_color(p_idx, color, C)
+                builder.prefer_pixel_color(p_idx, color, weight=10.0)
 
 
 if __name__ == "__main__":
@@ -186,14 +186,14 @@ if __name__ == "__main__":
     }
 
     builder1 = ConstraintBuilder()
-    build_S11_constraints(ctx, params1, builder1)
+    build_S11_preferences(ctx, params1, builder1)
 
     # Should have 1 constraint per pixel with this hash
     expected1 = pixels_with_hash
-    print(f"  Constraints added: {len(builder1.constraints)}")
+    print(f"  Constraints added: {len(builder1.preferences)}")
     print(f"  Expected: {expected1} (1 constraint per matching pixel)")
-    assert len(builder1.constraints) == expected1, \
-        f"Expected {expected1} constraints, got {len(builder1.constraints)}"
+    assert len(builder1.preferences) == expected1, \
+        f"Expected {expected1} preferences, got {len(builder1.preferences)}"
 
     print("\nTest 2: Multiple templates for different hashes")
     print("-" * 70)
@@ -232,13 +232,13 @@ if __name__ == "__main__":
     }
 
     builder2 = ConstraintBuilder()
-    build_S11_constraints(ctx, params2, builder2)
+    build_S11_preferences(ctx, params2, builder2)
 
     expected2 = count1 + count2
-    print(f"  Constraints added: {len(builder2.constraints)}")
+    print(f"  Constraints added: {len(builder2.preferences)}")
     print(f"  Expected: {expected2} ({count1} + {count2})")
-    assert len(builder2.constraints) == expected2, \
-        f"Expected {expected2} constraints, got {len(builder2.constraints)}"
+    assert len(builder2.preferences) == expected2, \
+        f"Expected {expected2} preferences, got {len(builder2.preferences)}"
 
     print("\nTest 3: Template with multiple offsets (3x3 pattern)")
     print("-" * 70)
@@ -262,14 +262,14 @@ if __name__ == "__main__":
     }
 
     builder3 = ConstraintBuilder()
-    build_S11_constraints(ctx, params3, builder3)
+    build_S11_preferences(ctx, params3, builder3)
 
     # Each pixel with matching hash stamps 9 offsets, but some may go out of bounds
     # For a 5x5 grid, interior pixels can stamp all 9, edge pixels fewer
-    # Let's just check we got constraints
-    print(f"  Constraints added: {len(builder3.constraints)}")
+    # Let's just check we got preferences
+    print(f"  Constraints added: {len(builder3.preferences)}")
     print(f"  (varies based on edge effects, but should be > 0)")
-    assert len(builder3.constraints) > 0, "Should have generated some constraints"
+    assert len(builder3.preferences) > 0, "Should have generated some preferences"
 
     print("\n" + "=" * 70)
     print("✓ S11 builder self-test passed.")
