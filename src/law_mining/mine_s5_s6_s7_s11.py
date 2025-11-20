@@ -27,6 +27,97 @@ from src.features.components import connected_components_by_color
 
 
 # =============================================================================
+# Template Pruning - Safety Check for S5/S11
+# =============================================================================
+
+def prune_templates(
+    task_context: TaskContext,
+    consistent_templates: Dict[int, np.ndarray],
+    patch_radius: int,
+) -> Dict[int, np.ndarray]:
+    """
+    Prune templates that cause mismatches on training data.
+
+    This is the "Safety Check" to prevent S5/S11 from mining spurious patterns.
+    Any template that stamps the wrong color for any pixel in any training
+    example is killed.
+
+    Args:
+        task_context: TaskContext with train examples
+        consistent_templates: Dict mapping hash_value -> patch (numpy array)
+        patch_radius: Patch radius (1 for 3×3 patches)
+
+    Returns:
+        Filtered dict of valid templates that don't violate training data
+
+    Algorithm:
+        For each training example:
+          1. Simulate applying all templates
+          2. Check each stamped pixel against ground truth
+          3. If template stamps wrong color, DELETE IT
+
+    Example:
+        Before: 50 templates mined from training patterns
+        After: 20 templates (30 pruned for causing conflicts)
+    """
+    valid_templates = consistent_templates.copy()
+
+    # Track which templates have been killed (for efficiency)
+    killed_hashes = set()
+
+    # For each training example
+    for ex in task_context.train_examples:
+        if ex.output_grid is None:
+            continue
+
+        nbh = ex.neighborhood_hashes  # Dict[(r, c), int]
+        grid_out = ex.output_grid
+        H_out, W_out = grid_out.shape
+
+        # Simulate stamping all templates
+        for (r, c), h_val in nbh.items():
+            if h_val in killed_hashes:
+                continue  # Already killed, skip
+
+            if h_val not in valid_templates:
+                continue  # Not a valid template
+
+            patch = valid_templates[h_val]
+
+            # Check each offset in the template
+            template_is_guilty = False
+            for dr in range(-patch_radius, patch_radius + 1):
+                for dc in range(-patch_radius, patch_radius + 1):
+                    rr = r + dr
+                    cc = c + dc
+
+                    # Check bounds
+                    if 0 <= rr < H_out and 0 <= cc < W_out:
+                        # Get predicted color from template
+                        pred_color = int(patch[dr + patch_radius, dc + patch_radius])
+
+                        # Get ground truth color
+                        gt_color = int(grid_out[rr, cc])
+
+                        # Check if template stamps wrong color
+                        if pred_color != gt_color:
+                            # GUILTY - template causes mismatch
+                            template_is_guilty = True
+                            break
+
+                if template_is_guilty:
+                    break
+
+            if template_is_guilty:
+                # Kill this template
+                if h_val in valid_templates:
+                    del valid_templates[h_val]
+                killed_hashes.add(h_val)
+
+    return valid_templates
+
+
+# =============================================================================
 # S5 Miner - Template Stamping (Seed → Template)
 # =============================================================================
 
@@ -123,6 +214,12 @@ def mine_S5(
 
     if not consistent_templates:
         return []  # No S5 rules found
+
+    # Step 2.5: Safety Check - Prune templates that cause training mismatches
+    consistent_templates = prune_templates(task_context, consistent_templates, PATCH_RADIUS)
+
+    if not consistent_templates:
+        return []  # All templates pruned (all were spurious)
 
     # Step 3: Convert to builder parameter format
     # seed_templates: { hash_str: { "(dr,dc)": color } }
@@ -881,6 +978,12 @@ def mine_S11(
 
     if not consistent_templates:
         return []  # No S11 rules found
+
+    # Step 2.5: Safety Check - Prune templates that cause training mismatches
+    consistent_templates = prune_templates(task_context, consistent_templates, PATCH_RADIUS)
+
+    if not consistent_templates:
+        return []  # All templates pruned (all were spurious)
 
     # Step 3: Convert to builder parameter format
     # hash_templates: { hash_str: { "(dr,dc)": color } }
