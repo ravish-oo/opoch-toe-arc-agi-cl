@@ -143,8 +143,10 @@ def build_S_Default_constraints(
             p_idx = r * W + c
 
             # Apply constraint based on rule
+            # Use SOFT PREFERENCES instead of HARD CONSTRAINTS
+            # This allows S1-S11 (matter laws) to override S_Default (inertia)
             if rule == "copy_input":
-                # Fix to input color (inertia)
+                # Prefer input color (inertia)
                 # For test examples, use test input grid
                 # For train examples, use train input grid
                 input_grid = ex.input_grid
@@ -154,9 +156,9 @@ def build_S_Default_constraints(
                     c_in = int(input_grid[r, c])
                     # Validate color is in palette
                     if 0 <= c_in < C:
-                        builder.fix_pixel_color(p_idx, c_in, C)
+                        builder.prefer_pixel_color(p_idx, c_in, weight=10.0)
                 # else: pixel is outside input grid (expansion zone)
-                # Can't copy from non-existent input, skip constraint
+                # Can't copy from non-existent input, skip preference
 
             elif rule.startswith("fixed_") or rule.startswith("vacuum_"):
                 # Parse dynamic color: "fixed_4", "vacuum_7", etc.
@@ -164,7 +166,7 @@ def build_S_Default_constraints(
                     target_color = int(rule.split("_")[1])
                     # Validate color is in palette
                     if 0 <= target_color < C:
-                        builder.fix_pixel_color(p_idx, target_color, C)
+                        builder.prefer_pixel_color(p_idx, target_color, weight=10.0)
                 except (ValueError, IndexError):
                     pass  # Malformed rule, skip
 
@@ -208,12 +210,12 @@ if __name__ == "__main__":
     builder1 = ConstraintBuilder()
     build_S_Default_constraints(ctx, params1, builder1)
 
-    # Should have 9 constraints (3x3 grid, all fixed to 0)
+    # Should have 9 preferences (3x3 grid, all prefer color 0)
     expected1 = 9
-    print(f"  Expected: {expected1} constraints (3x3 grid, all fixed to 0)")
-    print(f"  Actual: {len(builder1.constraints)}")
-    assert len(builder1.constraints) == expected1, \
-        f"Expected {expected1} constraints, got {len(builder1.constraints)}"
+    print(f"  Expected: {expected1} preferences (3x3 grid, all prefer color 0)")
+    print(f"  Actual: {len(builder1.preferences)}")
+    assert len(builder1.preferences) == expected1, \
+        f"Expected {expected1} preferences, got {len(builder1.preferences)}"
 
     print("\nTest 2: Copy-input rule")
     print("-" * 70)
@@ -228,12 +230,12 @@ if __name__ == "__main__":
     builder2 = ConstraintBuilder()
     build_S_Default_constraints(ctx, params2, builder2)
 
-    # Should have 9 constraints (3x3 grid, all copy from input)
+    # Should have 9 preferences (3x3 grid, all copy from input)
     expected2 = 9
-    print(f"  Expected: {expected2} constraints (3x3 grid, all copy from input)")
-    print(f"  Actual: {len(builder2.constraints)}")
-    assert len(builder2.constraints) == expected2, \
-        f"Expected {expected2} constraints, got {len(builder2.constraints)}"
+    print(f"  Expected: {expected2} preferences (3x3 grid, all copy from input)")
+    print(f"  Actual: {len(builder2.preferences)}")
+    assert len(builder2.preferences) == expected2, \
+        f"Expected {expected2} preferences, got {len(builder2.preferences)}"
 
     print("\nTest 3: Mixed rules (different roles)")
     print("-" * 70)
@@ -264,12 +266,12 @@ if __name__ == "__main__":
     builder3 = ConstraintBuilder()
     build_S_Default_constraints(ctx, params3, builder3)
 
-    # Should have 9 constraints (8 border + 1 center)
+    # Should have 9 preferences (8 border + 1 center)
     expected3 = 9
-    print(f"  Expected: {expected3} constraints (8 border fixed to 0, 1 center copy)")
-    print(f"  Actual: {len(builder3.constraints)}")
-    assert len(builder3.constraints) == expected3, \
-        f"Expected {expected3} constraints, got {len(builder3.constraints)}"
+    print(f"  Expected: {expected3} preferences (8 border prefer 0, 1 center copy)")
+    print(f"  Actual: {len(builder3.preferences)}")
+    assert len(builder3.preferences) == expected3, \
+        f"Expected {expected3} preferences, got {len(builder3.preferences)}"
 
     print("\nTest 4: No rules (active roles)")
     print("-" * 70)
@@ -285,10 +287,10 @@ if __name__ == "__main__":
     build_S_Default_constraints(ctx, params4, builder4)
 
     expected4 = 0
-    print(f"  Expected: {expected4} constraints (no rules)")
-    print(f"  Actual: {len(builder4.constraints)}")
-    assert len(builder4.constraints) == expected4, \
-        f"Expected {expected4} constraints, got {len(builder4.constraints)}"
+    print(f"  Expected: {expected4} preferences (no rules)")
+    print(f"  Actual: {len(builder4.preferences)}")
+    assert len(builder4.preferences) == expected4, \
+        f"Expected {expected4} preferences, got {len(builder4.preferences)}"
 
     print("\n" + "=" * 70)
     print("✓ S_Default builder self-test passed.")

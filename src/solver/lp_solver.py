@@ -129,14 +129,28 @@ def solve_constraints_for_grid(
         prob += (sum(y[p][c] for c in range(num_colors)) == 1)
 
     # 5. Set objective
+    objective_expr = 0
+
+    # Add soft preferences from builder
+    # For each preference (p_idx, pref_color, weight), add penalty for choosing any color != pref_color
+    for p_idx, pref_color, weight in builder.preferences:
+        # Cost is paid for choosing any color OTHER than preferred color
+        for c in range(num_colors):
+            if c != pref_color:
+                objective_expr += weight * y[p_idx][c]
+
+    # Add base objective if specified
     if objective == "min_sum":
-        # Minimize sum of all y variables (trivial objective for TU matrix)
-        prob += sum(y[p][c] for p in range(num_pixels) for c in range(num_colors))
+        # Tiny regularization to break ties (yields to preferences with weight >= 0.001)
+        objective_expr += 0.0001 * sum(y[p][c] for p in range(num_pixels) for c in range(num_colors))
     elif objective == "none":
-        # Zero objective (feasibility only)
-        prob += 0
+        # No base objective (only preferences matter)
+        pass
     else:
         raise ValueError(f"Unknown objective: {objective}")
+
+    # Set the objective
+    prob += objective_expr
 
     # 6. Solve using pulp's CBC solver
     status = prob.solve(pulp.PULP_CBC_CMD(msg=False))

@@ -43,15 +43,17 @@ class LinearConstraint:
 @dataclass
 class ConstraintBuilder:
     """
-    Collects linear equality constraints over the y vector.
+    Collects linear equality constraints and soft preferences over the y vector.
 
     This is the main interface for schema builders to emit constraints
     that will later be passed to the LP solver.
 
     Attributes:
-        constraints: List of LinearConstraint objects
+        constraints: List of LinearConstraint objects (hard constraints)
+        preferences: List of (p_idx, color, weight) tuples (soft preferences)
     """
     constraints: List[LinearConstraint] = field(default_factory=list)
+    preferences: List[tuple] = field(default_factory=list)  # List[(p_idx, color, weight)]
 
     def add_eq(self, indices: List[int], coeffs: List[float], rhs: float) -> None:
         """
@@ -138,6 +140,28 @@ class ConstraintBuilder:
         """
         i = y_index(p_idx, color, C)
         self.add_eq(indices=[i], coeffs=[1.0], rhs=0.0)
+
+    def prefer_pixel_color(self, p_idx: int, color: int, weight: float = 1.0) -> None:
+        """
+        Add a soft preference for pixel p to have the given color.
+
+        This adds a term to the objective function that penalizes
+        choosing any color OTHER than the preferred color.
+
+        Unlike fix_pixel_color (hard constraint), this allows the solver
+        to choose a different color if required by other hard constraints,
+        but at a cost.
+
+        Args:
+            p_idx: Flat pixel index (0 <= p_idx < N)
+            color: Preferred color (0 <= color < C)
+            weight: Penalty weight for violating this preference (default 1.0)
+
+        Example:
+            # Prefer pixel 3 to be color 7, but allow override by hard constraints
+            builder.prefer_pixel_color(3, 7, weight=10.0)
+        """
+        self.preferences.append((p_idx, color, weight))
 
 
 def add_one_hot_constraints(builder: ConstraintBuilder, N: int, C: int) -> None:
