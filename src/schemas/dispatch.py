@@ -31,10 +31,11 @@ from src.schemas.s8_tiling import build_S8_constraints
 from src.schemas.s9_cross_propagation import build_S9_constraints
 from src.schemas.s10_frame_border import build_S10_constraints
 from src.schemas.s11_local_codebook import build_S11_constraints
+from src.schemas.s_default import build_S_Default_constraints
 
 
 # =============================================================================
-# All 11 schema builders (S1-S11) are implemented in separate modules (M3.1-M3.5)
+# Schema builders (S1-S11 + S_Default) are implemented in separate modules (M3.1-M3.5)
 # =============================================================================
 
 
@@ -54,6 +55,7 @@ BUILDERS: Dict[str, Callable[[TaskContext, Dict[str, Any], ConstraintBuilder], N
     "S9": build_S9_constraints,
     "S10": build_S10_constraints,
     "S11": build_S11_constraints,
+    "S_Default": build_S_Default_constraints,
 }
 
 
@@ -78,7 +80,7 @@ def apply_schema_instance(
     appropriate builder function which emits constraints into the builder.
 
     Args:
-        family_id: Schema family identifier (e.g. "S1", "S2", ..., "S11")
+        family_id: Schema family identifier (e.g. "S1", "S2", ..., "S11", "S_Default")
         schema_params: Parameters for this schema instance
         task_context: TaskContext with all φ features and grids
         builder: ConstraintBuilder to accumulate constraints
@@ -148,10 +150,10 @@ if __name__ == "__main__":
     print("-" * 70)
     pprint(sorted(BUILDERS.keys()))
 
-    expected_keys = {f"S{i}" for i in range(1, 12)}
+    expected_keys = {f"S{i}" for i in range(1, 12)} | {"S_Default"}
     assert set(BUILDERS.keys()) == expected_keys, \
-        f"Expected builder keys S1..S11, got {set(BUILDERS.keys())}"
-    print(f"  ✓ All 11 builders registered (S1-S11)")
+        f"Expected builder keys S1..S11 + S_Default, got {set(BUILDERS.keys())}"
+    print(f"  ✓ All 12 builders registered (S1-S11 + S_Default)")
 
     print("\n2. Testing dispatch with all builders:")
     print("-" * 70)
