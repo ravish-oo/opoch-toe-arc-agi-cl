@@ -1,15 +1,15 @@
 """
-S_Default schema builder: Law of Inertia & Global Vacuum.
+S_Default schema builder: Law of Inertia & Colored Vacuum.
 
 This implements the S_Default schema for unconstrained pixels:
     "For pixels not covered by S1-S11, apply default behavior based on role:
-     - Vacuum roles: fix to color 0
+     - Fixed-color roles: fix to consistent color (e.g., fixed_4, fixed_0)
      - Inert roles: copy input color
-     - Expansion zones (no role): apply global vacuum rule"
+     - Expansion zones (no role): apply global vacuum rule (e.g., vacuum_7)"
 
 S_Default prevents the ILP solver from assigning arbitrary colors to
 background/unconstrained pixels. Handles both geometry-preserving and
-geometry-changing tasks.
+geometry-changing tasks. Supports ANY consistent color, not just 0.
 """
 
 from typing import Dict, Any
@@ -143,11 +143,7 @@ def build_S_Default_constraints(
             p_idx = r * W + c
 
             # Apply constraint based on rule
-            if rule == "fixed_0" or rule == "vacuum_0":
-                # Fix to color 0 (vacuum/background)
-                builder.fix_pixel_color(p_idx, 0, C)
-
-            elif rule == "copy_input":
+            if rule == "copy_input":
                 # Fix to input color (inertia)
                 # For test examples, use test input grid
                 # For train examples, use train input grid
@@ -161,6 +157,16 @@ def build_S_Default_constraints(
                         builder.fix_pixel_color(p_idx, c_in, C)
                 # else: pixel is outside input grid (expansion zone)
                 # Can't copy from non-existent input, skip constraint
+
+            elif rule.startswith("fixed_") or rule.startswith("vacuum_"):
+                # Parse dynamic color: "fixed_4", "vacuum_7", etc.
+                try:
+                    target_color = int(rule.split("_")[1])
+                    # Validate color is in palette
+                    if 0 <= target_color < C:
+                        builder.fix_pixel_color(p_idx, target_color, C)
+                except (ValueError, IndexError):
+                    pass  # Malformed rule, skip
 
 
 if __name__ == "__main__":

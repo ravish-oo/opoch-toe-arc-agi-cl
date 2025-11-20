@@ -1,14 +1,15 @@
 """
-S_Default miner: Law of Inertia & Global Vacuum.
+S_Default miner: Law of Inertia & Colored Vacuum.
 
 This miner discovers the default behavior for pixels not covered by S1-S11.
 It analyzes role statistics to determine if roles exhibit:
-  - "fixed_0": Always becomes color 0 (vacuum/background)
+  - "fixed_{C}": Always becomes specific color C (e.g., fixed_4, fixed_0)
   - "copy_input": Always preserves input color (inertia)
-  - "vacuum_0": Global rule for expansion zones (pixels outside input bounds)
+  - "vacuum_{C}": Global rule for expansion zones with consistent color C
 
 This prevents the ILP solver from assigning arbitrary colors to unconstrained pixels.
 Handles both geometry-preserving and geometry-changing tasks.
+Supports ANY consistent color, not just 0.
 """
 
 from typing import Dict, List, Any
@@ -66,13 +67,12 @@ def mine_S_Default(
 
         # Analyze train_out appearances
         num_out = len(stats.train_out)
-        count_zero = 0
         count_copy = 0
+        counts_by_color: Dict[int, int] = {}
 
         for ex_idx, r, c, c_out in stats.train_out:
-            # Count zeros
-            if c_out == 0:
-                count_zero += 1
+            # Count occurrences of each specific color
+            counts_by_color[c_out] = counts_by_color.get(c_out, 0) + 1
 
             # Count copies (where train_in color matches train_out color)
             c_in = train_in_lookup.get((ex_idx, r, c))
@@ -80,20 +80,25 @@ def mine_S_Default(
                 count_copy += 1
 
         # Calculate probabilities
-        P_zero = count_zero / num_out if num_out > 0 else 0.0
         P_copy = count_copy / num_out if num_out > 0 else 0.0
 
         # Emit rules based on thresholds
-        if P_zero >= threshold:
-            rules[role_id] = "fixed_0"
-        elif P_copy >= threshold:
+        # Prioritize copy_input (strongest invariant)
+        if P_copy >= threshold:
             rules[role_id] = "copy_input"
+        elif counts_by_color:
+            # Find most consistent color
+            best_color = max(counts_by_color, key=counts_by_color.get)
+            P_best_color = counts_by_color[best_color] / num_out if num_out > 0 else 0.0
+            if P_best_color >= threshold:
+                # Generalized: support ANY fixed color (not just 0)
+                rules[role_id] = f"fixed_{best_color}"
         # else: active role, skip
 
     # Mine Global Vacuum Rule (for expansion zones in geometry-changing tasks)
     # Look at ALL train_out pixels that are OUTSIDE train_in bounds
     vacuum_pixels = 0
-    vacuum_zeros = 0
+    vacuum_counts: Dict[int, int] = {}
 
     for i, ex in enumerate(task_context.train_examples):
         # Check if output is larger than input (geometry-changing)
@@ -107,15 +112,16 @@ def mine_S_Default(
                     # This is a vacuum pixel (expansion zone)
                     vacuum_pixels += 1
                     color_out = int(ex.output_grid[r, c])
-                    if color_out == 0:
-                        vacuum_zeros += 1
+                    vacuum_counts[color_out] = vacuum_counts.get(color_out, 0) + 1
 
-    # If we have vacuum pixels and they are consistently 0
-    if vacuum_pixels > 0:
-        P_vacuum = vacuum_zeros / vacuum_pixels
+    # If we have vacuum pixels and they are consistently one color
+    if vacuum_pixels > 0 and vacuum_counts:
+        # Find most consistent color in expansion zone
+        best_vac_color = max(vacuum_counts, key=vacuum_counts.get)
+        P_vacuum = vacuum_counts[best_vac_color] / vacuum_pixels
         if P_vacuum >= threshold:
-            # Special Rule ID -1 for Global Vacuum
-            rules[-1] = "vacuum_0"
+            # Special Rule ID -1 for Global Vacuum (any color)
+            rules[-1] = f"vacuum_{best_vac_color}"
 
     # If no rules found, return empty list
     if not rules:
@@ -175,12 +181,12 @@ if __name__ == "__main__":
         print(f"  Number of rules: {len(rules)}")
 
         # Count rule types
-        num_fixed_0 = sum(1 for r in rules.values() if r == "fixed_0")
+        num_fixed = sum(1 for r in rules.values() if r.startswith("fixed_"))
         num_copy = sum(1 for r in rules.values() if r == "copy_input")
-        num_vacuum = sum(1 for r in rules.values() if r == "vacuum_0")
-        print(f"  Fixed-0 rules: {num_fixed_0}")
+        num_vacuum = sum(1 for r in rules.values() if r.startswith("vacuum_"))
+        print(f"  Fixed-color rules: {num_fixed}")
         print(f"  Copy-input rules: {num_copy}")
-        print(f"  Vacuum-0 rules: {num_vacuum}")
+        print(f"  Vacuum rules: {num_vacuum}")
         if -1 in rules:
             print(f"  ✓ Global vacuum rule present: {rules[-1]}")
 
