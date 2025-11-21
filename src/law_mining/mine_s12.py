@@ -297,45 +297,23 @@ def mine_S12(
                     if total_affected_pixels < 1:
                         continue  # Skip vacuous physics tuple
 
-                    # If we found valid hashes with kinetic utility, emit ONE instance per example
+                    # If we found valid hashes with kinetic utility, emit ONE GLOBAL instance
+                    # The dispatcher will inject example_type/example_index at runtime
                     if valid_hashes:
-                        # Emit instances for TRAIN examples
-                        for train_idx in range(len(task_context.train_examples)):
-                            params = {
-                                "example_type": "train",
-                                "example_index": train_idx,
-                                "rays": [{
-                                    "seed_hashes": valid_hashes,  # LIST of all valid hashes
-                                    "vector": str(vector),  # Convert to string for JSON compatibility
-                                    "draw_color": draw_color,
-                                    "stop_condition": stop_condition,
-                                    "include_seed": include_seed
-                                }]
-                            }
+                        params = {
+                            "rays": [{
+                                "seed_hashes": valid_hashes,  # LIST of all valid hashes
+                                "vector": str(vector),  # Convert to string for JSON compatibility
+                                "draw_color": draw_color,
+                                "stop_condition": stop_condition,
+                                "include_seed": include_seed
+                            }]
+                        }
 
-                            instances.append(SchemaInstance(
-                                family_id="S12",
-                                params=params
-                            ))
-
-                        # Emit instances for TEST examples
-                        for test_idx in range(len(task_context.test_examples)):
-                            params = {
-                                "example_type": "test",
-                                "example_index": test_idx,
-                                "rays": [{
-                                    "seed_hashes": valid_hashes,  # LIST of all valid hashes
-                                    "vector": str(vector),  # Convert to string for JSON compatibility
-                                    "draw_color": draw_color,
-                                    "stop_condition": stop_condition,
-                                    "include_seed": include_seed
-                                }]
-                            }
-
-                            instances.append(SchemaInstance(
-                                family_id="S12",
-                                params=params
-                            ))
+                        instances.append(SchemaInstance(
+                            family_id="S12",
+                            params=params
+                        ))
 
     return instances
 
