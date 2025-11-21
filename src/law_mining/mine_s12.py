@@ -349,10 +349,22 @@ def mine_S12(
     if not all_hashes:
         return instances  # No hashes to mine
 
+    # 1.5. Collect relevant colors (only colors that appear in training outputs)
+    # Performance optimization: Skip colors that never appear in output
+    # (They will either fail validation or have zero kinetic utility)
+    relevant_colors: Set[int] = set()
+    for ex in task_context.train_examples:
+        if ex.output_grid is not None:
+            unique_colors = set(ex.output_grid.flatten())
+            relevant_colors.update(unique_colors)
+
+    if not relevant_colors:
+        return instances  # No colors in output (shouldn't happen)
+
     # 2. Enumerate candidate combinations (PHYSICS-FIRST)
-    # Loop over physics space: vector × color × stop_condition × include_seed
+    # Loop over physics space: vector × relevant_colors × stop_condition × include_seed
     for vector in VECTORS:
-        for draw_color in range(task_context.C):
+        for draw_color in relevant_colors:
             for stop_condition in STOP_CONDITIONS:
                 for include_seed in [False, True]:
                     # Find ALL hashes that are valid for this physics
