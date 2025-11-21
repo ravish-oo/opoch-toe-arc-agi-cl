@@ -167,6 +167,64 @@ def validate_ray_pattern(
     return True  # Pattern is valid on all training examples
 
 
+def count_affected_pixels(
+    task_context: TaskContext,
+    seed_hash: int,
+    vector: Tuple[int, int],
+    draw_color: int,
+    stop_condition: str,
+    include_seed: bool
+) -> int:
+    """
+    Count how many pixels the ray actually CHANGES (kinetic utility).
+
+    A pixel is "affected" if the ray changes its color (input != draw_color).
+    This filters out Zero-Action Laws (vacuous patterns where pixels already
+    have the target color).
+
+    Args:
+        task_context: TaskContext with training examples
+        seed_hash: Neighborhood hash identifying seed pixels
+        vector: (dr, dc) direction
+        draw_color: Color to paint along ray
+        stop_condition: When to stop ray
+        include_seed: Whether to paint seed pixel
+
+    Returns:
+        Total count of pixels changed across all training examples
+    """
+    total_affected = 0
+
+    for ex in task_context.train_examples:
+        if ex.output_grid is None:
+            continue  # Skip examples without output
+
+        input_grid = ex.input_grid
+        nbh = ex.neighborhood_hashes
+
+        # Find seed pixels matching this hash
+        seed_pixels = [(r, c) for (r, c), h_val in nbh.items() if h_val == seed_hash]
+
+        if not seed_pixels:
+            continue  # No seeds in this example
+
+        # Simulate rays from each seed
+        for seed_r, seed_c in seed_pixels:
+            ray_pixels = simulate_ray(
+                seed_r, seed_c, vector, input_grid, stop_condition, include_seed
+            )
+
+            # Count pixels where ray changes the color
+            for r, c in ray_pixels:
+                H_in, W_in = input_grid.shape
+                if 0 <= r < H_in and 0 <= c < W_in:
+                    input_color = int(input_grid[r, c])
+                    if input_color != draw_color:
+                        total_affected += 1  # This pixel will be changed
+
+    return total_affected
+
+
 def mine_S12(
     task_context: TaskContext,
     roles: Dict[Any, int],
@@ -211,6 +269,7 @@ def mine_S12(
                 for include_seed in [False, True]:
                     # Find ALL hashes that are valid for this physics
                     valid_hashes: List[int] = []
+                    total_affected_pixels = 0  # Track kinetic utility
 
                     for seed_hash in all_hashes:
                         # Validate pattern on all training examples
@@ -224,7 +283,21 @@ def mine_S12(
                         ):
                             valid_hashes.append(seed_hash)
 
-                    # If we found valid hashes, emit ONE instance per example
+                            # Count affected pixels for this hash (kinetic utility)
+                            total_affected_pixels += count_affected_pixels(
+                                task_context,
+                                seed_hash,
+                                vector,
+                                draw_color,
+                                stop_condition,
+                                include_seed
+                            )
+
+                    # PRUNE Zero-Action Laws (physics that do no work)
+                    if total_affected_pixels < 1:
+                        continue  # Skip vacuous physics tuple
+
+                    # If we found valid hashes with kinetic utility, emit ONE instance per example
                     if valid_hashes:
                         # Emit instances for TRAIN examples
                         for train_idx in range(len(task_context.train_examples)):
