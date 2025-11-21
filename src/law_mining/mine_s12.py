@@ -173,14 +173,20 @@ def count_affected_pixels(
     vector: Tuple[int, int],
     draw_color: int,
     stop_condition: str,
-    include_seed: bool
+    include_seed: bool,
+    roles: Dict[Any, int],
+    claimed_roles: Set[int]
 ) -> int:
     """
     Count how many pixels the ray actually CHANGES (kinetic utility).
 
-    A pixel is "affected" if the ray changes its color (input != draw_color).
-    This filters out Zero-Action Laws (vacuous patterns where pixels already
-    have the target color).
+    A pixel is "affected" if the ray changes its color (input != draw_color)
+    AND the pixel is not already claimed by simpler schemas (S2/S6/S10).
+
+    This implements Occam's Razor: S12 only operates on "Dark Matter" (unclaimed pixels).
+    This filters out:
+      - Zero-Action Laws (vacuous patterns where pixels already have target color)
+      - Inter-Schema Redundancy (pixels already explained by simpler schemas)
 
     Args:
         task_context: TaskContext with training examples
@@ -189,13 +195,15 @@ def count_affected_pixels(
         draw_color: Color to paint along ray
         stop_condition: When to stop ray
         include_seed: Whether to paint seed pixel
+        roles: Role mapping (kind, ex_idx, r, c) -> role_id
+        claimed_roles: Set of role_ids claimed by S2/S6/S10
 
     Returns:
-        Total count of pixels changed across all training examples
+        Total count of unclaimed pixels changed across all training examples
     """
     total_affected = 0
 
-    for ex in task_context.train_examples:
+    for ex_idx, ex in enumerate(task_context.train_examples):
         if ex.output_grid is None:
             continue  # Skip examples without output
 
@@ -214,13 +222,18 @@ def count_affected_pixels(
                 seed_r, seed_c, vector, input_grid, stop_condition, include_seed
             )
 
-            # Count pixels where ray changes the color
+            # Count pixels where ray changes the color AND pixel is unclaimed
             for r, c in ray_pixels:
                 H_in, W_in = input_grid.shape
                 if 0 <= r < H_in and 0 <= c < W_in:
+                    # Check if pixel's role is claimed by S2/S6/S10
+                    role_key = ("train_out", ex_idx, r, c)
+                    if role_key in roles and roles[role_key] in claimed_roles:
+                        continue  # Skip claimed pixel (already explained by simpler schema)
+
                     input_color = int(input_grid[r, c])
                     if input_color != draw_color:
-                        total_affected += 1  # This pixel will be changed
+                        total_affected += 1  # This pixel will be changed by S12
 
     return total_affected
 
@@ -228,25 +241,30 @@ def count_affected_pixels(
 def mine_S12(
     task_context: TaskContext,
     roles: Dict[Any, int],
-    role_stats: Dict[int, Dict[str, Any]]
+    role_stats: Dict[int, Dict[str, Any]],
+    claimed_roles: Set[int]
 ) -> List[SchemaInstance]:
     """
     Mine S12 ray patterns from training examples.
 
-    Algorithm (PHYSICS-FIRST):
+    Algorithm (PHYSICS-FIRST + OCCAM'S RAZOR):
       1. Collect all unique neighborhood hashes from training examples
       2. For each physics combination (vector, draw_color, stop_condition, include_seed):
          - Find ALL hashes that are valid for this physics
          - Simulate rays on all training examples
          - Validate: all ray pixels must match ground truth
-         - If valid, emit ONE SchemaInstance per example with list of ALL valid hashes
+         - Count kinetic utility ONLY on unclaimed pixels (Dark Matter)
+         - If valid and has kinetic utility, emit ONE global SchemaInstance
 
-    This groups seeds by physics behavior, reducing instances from ~760k to ~240.
+    This implements:
+      - Physics-first grouping: reduces instances from ~760k to ~240
+      - Occam's Razor: S12 only operates on pixels NOT claimed by S2/S6/S10
 
     Args:
         task_context: TaskContext with training examples
-        roles: Role mapping (unused but kept for API consistency)
+        roles: Role mapping (kind, ex_idx, r, c) -> role_id
         role_stats: Role statistics (unused but kept for API consistency)
+        claimed_roles: Set of role_ids claimed by simpler schemas (S2/S6/S10)
 
     Returns:
         List of SchemaInstance objects for valid ray patterns
@@ -283,14 +301,16 @@ def mine_S12(
                         ):
                             valid_hashes.append(seed_hash)
 
-                            # Count affected pixels for this hash (kinetic utility)
+                            # Count affected pixels for this hash (kinetic utility on Dark Matter)
                             total_affected_pixels += count_affected_pixels(
                                 task_context,
                                 seed_hash,
                                 vector,
                                 draw_color,
                                 stop_condition,
-                                include_seed
+                                include_seed,
+                                roles,
+                                claimed_roles
                             )
 
                     # PRUNE Zero-Action Laws (physics that do no work)
@@ -348,7 +368,7 @@ if __name__ == "__main__":
     print("Test 1: Should find diagonal SE ray")
     print("-" * 70)
 
-    instances = mine_S12(ctx, {}, {})
+    instances = mine_S12(ctx, {}, {}, set())
 
     # Should find at least one instance with SE vector (1,1)
     found_se_ray = False

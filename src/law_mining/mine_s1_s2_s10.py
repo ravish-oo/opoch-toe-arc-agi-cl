@@ -45,7 +45,7 @@ def mine_S2(
     task_context: TaskContext,
     roles: RolesMapping,
     role_stats: Dict[int, RoleStats],
-) -> List[SchemaInstance]:
+) -> Tuple[List[SchemaInstance], Set[int]]:
     """
     Mine S2 schema instances: component-wise recolor based on size.
 
@@ -60,15 +60,16 @@ def mine_S2(
       2. Aggregate across all train examples:
          - Track all output colors seen for each (input_color, size)
       3. Keep only classes with exactly one consistent output color
-      4. Generate SchemaInstance for each (train + test) example
+      4. Collect claimed roles (pixels explained by S2)
+      5. Generate SchemaInstance for each (train + test) example
 
     Args:
         task_context: TaskContext with train/test examples
-        roles: RolesMapping (not used in S2, but kept for signature consistency)
+        roles: RolesMapping for tracking claimed pixels
         role_stats: RoleStats (not used in S2, but kept for signature consistency)
 
     Returns:
-        List of SchemaInstance objects with S2 parameters
+        Tuple of (List of SchemaInstance objects, Set of claimed role_ids)
 
     Example mined rule:
         If all training examples show "input_color=1, size=2 -> output_color=5",
@@ -87,8 +88,8 @@ def mine_S2(
             continue
         if ex.input_grid.shape != ex.output_grid.shape:
             # S2 requires same pixel positions in input and output
-            # For non-geometry-preserving tasks (crop, summary, etc.), return []
-            return []
+            # For non-geometry-preserving tasks (crop, summary, etc.), return empty
+            return ([], set())
 
     # Step 1: Mine task-wide invariants
     # Key: (input_color, size) -> Set[output_colors]
@@ -134,7 +135,7 @@ def mine_S2(
             consistent_mappings[key] = output_color
 
     if not consistent_mappings:
-        return []  # No S2 rules found
+        return ([], set())  # No S2 rules found
 
     # Step 3: Organize by input_color
     # Group mappings: input_color -> {size: output_color}
@@ -142,6 +143,24 @@ def mine_S2(
 
     for (input_color, size), output_color in consistent_mappings.items():
         color_to_size_map[input_color][str(size)] = output_color
+
+    # Step 3.5: Collect claimed roles (pixels explained by S2)
+    # S2 claims all pixels in components that match consistent_mappings
+    claimed_roles: Set[int] = set()
+
+    for ex_idx, ex in enumerate(task_context.train_examples):
+        grid_in = ex.input_grid
+        components = connected_components_by_color(grid_in)
+
+        for comp in components:
+            key = (comp.color, comp.size)
+            if key in consistent_mappings:
+                # This component is explained by S2
+                # Claim all pixel roles in OUTPUT grid (where S2 paints)
+                for (r, c) in comp.pixels:
+                    role_key = ("train_out", ex_idx, r, c)
+                    if role_key in roles:
+                        claimed_roles.add(roles[role_key])
 
     # Step 4: Generate SchemaInstances for each example
     instances: List[SchemaInstance] = []
@@ -172,7 +191,7 @@ def mine_S2(
                 }
             ))
 
-    return instances
+    return (instances, claimed_roles)
 
 
 # =============================================================================
@@ -183,7 +202,7 @@ def mine_S10(
     task_context: TaskContext,
     roles: RolesMapping,
     role_stats: Dict[int, RoleStats],
-) -> List[SchemaInstance]:
+) -> Tuple[List[SchemaInstance], Set[int]]:
     """
     Mine S10 schema instances: border vs interior recolor.
 
@@ -199,6 +218,10 @@ def mine_S10(
          - Track border colors and interior colors
       2. Aggregate across all train examples
       3. Keep only if BOTH border AND interior have exactly one consistent color
+      4. Collect claimed roles (all pixels explained by S10)
+
+    Returns:
+        Tuple of (List of SchemaInstance objects, Set of claimed role_ids)
       4. Generate SchemaInstance for each (train + test) example
 
     Args:
@@ -226,8 +249,8 @@ def mine_S10(
             continue
         if ex.input_grid.shape != ex.output_grid.shape:
             # S10 requires same pixel positions in input and output
-            # For non-geometry-preserving tasks (crop, summary, etc.), return []
-            return []
+            # For non-geometry-preserving tasks (crop, summary, etc.), return empty
+            return ([], set())
 
     # Step 1: Mine task-wide invariants
     # Track all border colors and interior colors seen across all train examples
@@ -257,10 +280,31 @@ def mine_S10(
     # Step 2: Check consistency
     # Only proceed if BOTH border and interior have exactly one consistent color
     if len(border_colors) != 1 or len(interior_colors) != 1:
-        return []  # Not consistent across all train examples
+        return ([], set())  # Not consistent across all train examples
 
     border_color = border_colors.pop()
     interior_color = interior_colors.pop()
+
+    # Step 2.5: Collect claimed roles (pixels explained by S10)
+    # S10 claims ALL pixels (both border and interior)
+    claimed_roles: Set[int] = set()
+
+    for ex_idx, ex in enumerate(task_context.train_examples):
+        grid_in = ex.input_grid
+        H_out, W_out = ex.output_grid.shape
+
+        # Get all components and classify pixels
+        components = connected_components_by_color(grid_in)
+        for comp in components:
+            border_interior = component_border_interior(grid_in, comp)
+
+            for pixel_info in border_interior:
+                r, c = pixel_info["coords"]
+                # Claim role in OUTPUT grid
+                if 0 <= r < H_out and 0 <= c < W_out:
+                    role_key = ("train_out", ex_idx, r, c)
+                    if role_key in roles:
+                        claimed_roles.add(roles[role_key])
 
     # Step 3: Generate SchemaInstances for each example
     instances: List[SchemaInstance] = []
@@ -289,7 +333,7 @@ def mine_S10(
             }
         ))
 
-    return instances
+    return (instances, claimed_roles)
 
 
 if __name__ == "__main__":

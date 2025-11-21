@@ -128,6 +128,10 @@ def build_S12_constraints(
 
         # Cast ray from each seed pixel
         for r_seed, c_seed in seed_pixels:
+            # Skip if seed is outside output grid bounds (geometry-changing case)
+            if not (0 <= r_seed < H and 0 <= c_seed < W):
+                continue
+
             # Optionally color the seed itself
             if include_seed:
                 p_idx = r_seed * W + c_seed
@@ -170,6 +174,13 @@ def should_stop(ex, r: int, c: int, stop_condition: str) -> bool:
     """
     if stop_condition == "border":
         # Never stop mid-grid (boundary checked in main loop)
+        return False
+
+    # Check if position is within input grid bounds (geometry-changing case)
+    H_in, W_in = ex.input_grid.shape
+    if not (0 <= r < H_in and 0 <= c < W_in):
+        # Ray position is outside input grid, can't check collision
+        # Continue ray (don't stop)
         return False
 
     # Get current pixel color from input grid

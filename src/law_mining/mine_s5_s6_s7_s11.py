@@ -264,6 +264,36 @@ def mine_S5(
 
 
 # =============================================================================
+# S6 Helper - Claim All Output Roles
+# =============================================================================
+
+def _claim_all_output_roles_s6(
+    task_context: TaskContext,
+    roles: RolesMapping
+) -> Set[int]:
+    """
+    S6 is geometry-changing: it claims ALL output pixels (entire output grid).
+
+    Returns:
+        Set of all role_ids in training output grids
+    """
+    claimed_roles: Set[int] = set()
+
+    for ex_idx, ex in enumerate(task_context.train_examples):
+        if ex.output_grid is None:
+            continue
+
+        H_out, W_out = ex.output_grid.shape
+        for r in range(H_out):
+            for c in range(W_out):
+                role_key = ("train_out", ex_idx, r, c)
+                if role_key in roles:
+                    claimed_roles.add(roles[role_key])
+
+    return claimed_roles
+
+
+# =============================================================================
 # S6 Miner - Crop to ROI
 # =============================================================================
 
@@ -271,7 +301,7 @@ def mine_S6(
     task_context: TaskContext,
     roles: RolesMapping,
     role_stats: Dict[int, RoleStats],
-) -> List[SchemaInstance]:
+) -> Tuple[List[SchemaInstance], Set[int]]:
     """
     Mine S6 schema instances: crop to region of interest.
 
@@ -294,14 +324,15 @@ def mine_S6(
          - Rule C: "Largest component (any color)"
       3. If a rule matches, generate SchemaInstance with out_to_in mapping
          computed per-example by applying the rule
+      4. Collect claimed roles (S6 claims ALL output pixels - geometry-changing)
 
     Args:
         task_context: TaskContext with train/test examples
-        roles: RolesMapping (not used, kept for signature consistency)
+        roles: RolesMapping for tracking claimed pixels
         role_stats: RoleStats (not used, kept for signature consistency)
 
     Returns:
-        List of SchemaInstance objects with S6 parameters
+        Tuple of (List of SchemaInstance objects, Set of claimed role_ids)
 
     Note:
         The out_to_in mapping is computed PER EXAMPLE by applying the
@@ -316,7 +347,7 @@ def mine_S6(
 
     for ex_idx, ex in enumerate(task_context.train_examples):
         if ex.output_grid is None:
-            return []  # No output
+            return ([], set())  # No output
 
         grid_in = ex.input_grid
         grid_out = ex.output_grid
@@ -325,7 +356,7 @@ def mine_S6(
 
         # Check if output is smaller or equal
         if H_out > H_in or W_out > W_in:
-            return []  # Not a crop
+            return ([], set())  # Not a crop
 
         output_dims.append((H_out, W_out))
 
@@ -338,18 +369,18 @@ def mine_S6(
                     candidates.append((r0, c0))
 
         if not candidates:
-            return []  # No crop position found for this example
+            return ([], set())  # No crop position found for this example
 
         candidates_per_example.append(candidates)
 
     # Check that all examples have same output dimensions
     if not output_dims:
-        return []
+        return ([], set())
 
     first_H_out, first_W_out = output_dims[0]
     for (H_out, W_out) in output_dims:
         if H_out != first_H_out or W_out != first_W_out:
-            return []  # Inconsistent output dimensions
+            return ([], set())  # Inconsistent output dimensions
 
     # Step S6.1: Test explicit selection rules
 
@@ -401,7 +432,9 @@ def mine_S6(
                     }
                 ))
 
-            return instances
+            # S6 is geometry-changing: claim ALL output roles
+            claimed_roles = _claim_all_output_roles_s6(task_context, roles)
+            return (instances, claimed_roles)
 
     # Rule B: Largest component of color c
     # Collect all colors that appear in any training input
@@ -521,7 +554,9 @@ def mine_S6(
                     }
                 ))
 
-            return instances
+            # S6 is geometry-changing: claim ALL output roles
+            claimed_roles = _claim_all_output_roles_s6(task_context, roles)
+            return (instances, claimed_roles)
 
     # Rule C: Largest component (any color)
     rule_c_valid = True
@@ -627,10 +662,12 @@ def mine_S6(
                 }
             ))
 
-        return instances
+        # S6 is geometry-changing: claim ALL output roles
+        claimed_roles = _claim_all_output_roles_s6(task_context, roles)
+        return (instances, claimed_roles)
 
     # Step S6.2: No rule matched
-    return []
+    return ([], set())
 
 
 # =============================================================================

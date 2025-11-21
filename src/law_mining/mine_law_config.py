@@ -65,16 +65,22 @@ def mine_law_config(task_context: TaskContext) -> TaskLawConfig:
     # 2) Aggregate role-level statistics across train_in, train_out, test_in
     role_stats = compute_role_stats(task_context, roles)
 
-    # 3) Initialize schema instance list
+    # 3) Initialize schema instance list and claimed roles tracker
     schema_instances: List[SchemaInstance] = []
+    claimed_roles: set = set()
 
     # 4) Call each miner in fixed, explicit order
     # S1: tie/equality constraints
     schema_instances.extend(mine_S1(task_context, roles, role_stats))
 
-    # S2, S10: component recolor / frame
-    schema_instances.extend(mine_S2(task_context, roles, role_stats))
-    schema_instances.extend(mine_S10(task_context, roles, role_stats))
+    # S2, S10: component recolor / frame (collect claimed roles)
+    s2_instances, s2_roles = mine_S2(task_context, roles, role_stats)
+    schema_instances.extend(s2_instances)
+    claimed_roles.update(s2_roles)
+
+    s10_instances, s10_roles = mine_S10(task_context, roles, role_stats)
+    schema_instances.extend(s10_instances)
+    claimed_roles.update(s10_roles)
 
     # S3, S4, S8, S9: bands, residues, tiling, plus-propagation
     schema_instances.extend(mine_S3(task_context, roles, role_stats))
@@ -84,12 +90,18 @@ def mine_law_config(task_context: TaskContext) -> TaskLawConfig:
 
     # S5, S6, S7, S11: template stamping, crop, summary, local codebook
     schema_instances.extend(mine_S5(task_context, roles, role_stats))
-    schema_instances.extend(mine_S6(task_context, roles, role_stats))
+
+    # S6: crop (collect claimed roles - claims ALL output for geometry-changing tasks)
+    s6_instances, s6_roles = mine_S6(task_context, roles, role_stats)
+    schema_instances.extend(s6_instances)
+    claimed_roles.update(s6_roles)
+
     schema_instances.extend(mine_S7(task_context, roles, role_stats))
     schema_instances.extend(mine_S11(task_context, roles, role_stats))
 
     # S12: generalized raycasting (8-directional projection)
-    schema_instances.extend(mine_S12(task_context, roles, role_stats))
+    # Pass claimed_roles so S12 only operates on "Dark Matter" (unclaimed pixels)
+    schema_instances.extend(mine_S12(task_context, roles, role_stats, claimed_roles))
 
     # S_Default: law of inertia for unconstrained pixels
     schema_instances.extend(mine_S_Default(task_context, roles, role_stats))
