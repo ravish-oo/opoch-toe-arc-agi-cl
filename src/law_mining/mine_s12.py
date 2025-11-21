@@ -238,6 +238,63 @@ def count_affected_pixels(
     return total_affected
 
 
+def compute_max_reach(
+    task_context: TaskContext,
+    seed_hash: int,
+    vector: Tuple[int, int],
+    draw_color: int,
+    stop_condition: str,
+    include_seed: bool
+) -> int:
+    """
+    Compute the maximum reach (Chebyshev distance) of a ray pattern.
+
+    Reach is the maximum distance a ray travels from its seed pixel.
+    This implements BASIS ORTHOGONALIZATION:
+      - Reach ≤ 1: Local transformation (S5's domain)
+      - Reach > 1: Action at a distance (S12's domain)
+
+    Args:
+        task_context: TaskContext with training examples
+        seed_hash: Neighborhood hash identifying seed pixels
+        vector: (dr, dc) direction
+        draw_color: Color to paint along ray
+        stop_condition: When to stop ray
+        include_seed: Whether to paint seed pixel
+
+    Returns:
+        Maximum Chebyshev distance from seed across all training examples
+    """
+    max_reach = 0
+
+    for ex in task_context.train_examples:
+        if ex.output_grid is None:
+            continue
+
+        input_grid = ex.input_grid
+        nbh = ex.neighborhood_hashes
+
+        # Find seed pixels matching this hash
+        seed_pixels = [(r, c) for (r, c), h_val in nbh.items() if h_val == seed_hash]
+
+        if not seed_pixels:
+            continue
+
+        # Simulate rays from each seed
+        for seed_r, seed_c in seed_pixels:
+            ray_pixels = simulate_ray(
+                seed_r, seed_c, vector, input_grid, stop_condition, include_seed
+            )
+
+            # Compute Chebyshev distance for each ray pixel
+            for r, c in ray_pixels:
+                # Chebyshev distance = max(|dr|, |dc|)
+                dist = max(abs(r - seed_r), abs(c - seed_c))
+                max_reach = max(max_reach, dist)
+
+    return max_reach
+
+
 def mine_S12(
     task_context: TaskContext,
     roles: Dict[Any, int],
@@ -247,18 +304,21 @@ def mine_S12(
     """
     Mine S12 ray patterns from training examples.
 
-    Algorithm (PHYSICS-FIRST + OCCAM'S RAZOR):
+    Algorithm (PHYSICS-FIRST + OCCAM'S RAZOR + BASIS ORTHOGONALIZATION):
       1. Collect all unique neighborhood hashes from training examples
       2. For each physics combination (vector, draw_color, stop_condition, include_seed):
          - Find ALL hashes that are valid for this physics
          - Simulate rays on all training examples
          - Validate: all ray pixels must match ground truth
          - Count kinetic utility ONLY on unclaimed pixels (Dark Matter)
-         - If valid and has kinetic utility, emit ONE global SchemaInstance
+         - Compute max reach (Chebyshev distance from seed)
+         - If valid, has kinetic utility, AND reach > 1, emit ONE global SchemaInstance
 
     This implements:
       - Physics-first grouping: reduces instances from ~760k to ~240
       - Occam's Razor: S12 only operates on pixels NOT claimed by S2/S6/S10
+      - Basis Orthogonalization: S12 handles action-at-distance (reach > 1),
+        S5 handles local transformations (reach ≤ 1)
 
     Args:
         task_context: TaskContext with training examples
@@ -270,6 +330,16 @@ def mine_S12(
         List of SchemaInstance objects for valid ray patterns
     """
     instances: List[SchemaInstance] = []
+
+    # Step 0: S12 only applies to geometry-preserving tasks
+    # If any training example has input.shape != output.shape, S12 is not applicable
+    for ex in task_context.train_examples:
+        if ex.output_grid is None:
+            continue
+        if ex.input_grid.shape != ex.output_grid.shape:
+            # S12 requires same pixel positions in input and output
+            # For non-geometry-preserving tasks (crop, summary, etc.), return empty
+            return instances
 
     # 1. Collect all unique neighborhood hashes from training examples
     all_hashes: Set[int] = set()
@@ -317,7 +387,25 @@ def mine_S12(
                     if total_affected_pixels < 1:
                         continue  # Skip vacuous physics tuple
 
-                    # If we found valid hashes with kinetic utility, emit ONE GLOBAL instance
+                    # PRUNE Micro-Rays (Gauge Redundancy with S5)
+                    # Compute maximum reach across all valid hashes
+                    max_reach = 0
+                    for seed_hash in valid_hashes:
+                        reach = compute_max_reach(
+                            task_context,
+                            seed_hash,
+                            vector,
+                            draw_color,
+                            stop_condition,
+                            include_seed
+                        )
+                        max_reach = max(max_reach, reach)
+
+                    # ORTHOGONALITY RULE: S5 handles local (reach ≤ 1), S12 handles distant (reach > 1)
+                    if max_reach <= 1:
+                        continue  # Skip micro-rays (S5-redundant)
+
+                    # If we found valid hashes with kinetic utility AND reach > 1, emit ONE GLOBAL instance
                     # The dispatcher will inject example_type/example_index at runtime
                     if valid_hashes:
                         params = {
