@@ -32,6 +32,7 @@ from src.schemas.s9_cross_propagation import build_S9_constraints
 from src.schemas.s10_frame_border import build_S10_constraints
 from src.schemas.s11_local_codebook import build_S11_constraints
 from src.schemas.s12_projection import build_S12_constraints
+from src.schemas.s13_gravity import build_S13_constraints
 from src.schemas.s_default import build_S_Default_constraints
 
 
@@ -57,6 +58,7 @@ BUILDERS: Dict[str, Callable[[TaskContext, Dict[str, Any], ConstraintBuilder], N
     "S10": build_S10_constraints,
     "S11": build_S11_constraints,
     "S12": build_S12_constraints,
+    "S13": build_S13_constraints,
     "S_Default": build_S_Default_constraints,
 }
 
