@@ -4,7 +4,7 @@ Law miner orchestrator: mine_law_config.
 This module provides the high-level law mining function that:
   1. Computes structural roles (WL/q refinement)
   2. Computes role-level statistics
-  3. Invokes all schema miners (S1-S11 + S_Default)
+  3. Invokes all schema miners (S1-S12 + S_Default)
   4. Assembles the results into a TaskLawConfig
 
 The orchestrator does not filter, rank, or validate coverage - it simply
@@ -25,6 +25,7 @@ from src.law_mining.mine_s1_ties import mine_S1
 from src.law_mining.mine_s1_s2_s10 import mine_S2, mine_S10
 from src.law_mining.mine_s3_s4_s8_s9 import mine_S3, mine_S4, mine_S8, mine_S9
 from src.law_mining.mine_s5_s6_s7_s11 import mine_S5, mine_S6, mine_S7, mine_S11
+from src.law_mining.mine_s12 import mine_S12
 from src.law_mining.mine_s_default import mine_S_Default
 
 
@@ -35,7 +36,7 @@ def mine_law_config(task_context: TaskContext) -> TaskLawConfig:
     Steps:
       - compute structural roles for all pixels across all grids,
       - aggregate role-level statistics,
-      - invoke miners for all schema families S1..S11 and S_Default,
+      - invoke miners for all schema families S1..S12 and S_Default,
       - concatenate all mined SchemaInstance objects into a TaskLawConfig.
 
     This function does NOT try to judge coverage or correctness; it only
@@ -86,6 +87,9 @@ def mine_law_config(task_context: TaskContext) -> TaskLawConfig:
     schema_instances.extend(mine_S6(task_context, roles, role_stats))
     schema_instances.extend(mine_S7(task_context, roles, role_stats))
     schema_instances.extend(mine_S11(task_context, roles, role_stats))
+
+    # S12: generalized raycasting (8-directional projection)
+    schema_instances.extend(mine_S12(task_context, roles, role_stats))
 
     # S_Default: law of inertia for unconstrained pixels
     schema_instances.extend(mine_S_Default(task_context, roles, role_stats))
