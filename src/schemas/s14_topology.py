@@ -78,10 +78,12 @@ def build_S14_constraints(
         ex = task_context.test_examples[example_index]
 
     # 2. Get grid dimensions
+    # FIX: Handle Test Examples (Future Geometry)
     H = ex.output_H
     W = ex.output_W
     if H is None or W is None:
-        return  # No output grid
+        # Assume geometry preserving for Topological tasks
+        H, W = ex.input_grid.shape
 
     # 3. Parse operation parameters
     operation = schema_params.get("operation", "")
