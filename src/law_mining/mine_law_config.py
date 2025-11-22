@@ -5,13 +5,16 @@ This module provides the high-level law mining function that:
   1. Computes structural roles (WL/q refinement)
   2. Computes role-level statistics
   3. Invokes Light Miners (S1-S11) - always run
-  4. Lazy Evaluation Gate: Only run Heavy Miners (S12, S13) if needed
+  4. Lazy Evaluation Gate: Only run Heavy Miners (S12, S13, S14) if needed
   5. Assembles the results into a TaskLawConfig
 
 Architecture: "Fast-Path" with Lazy Evaluation
   - Light Miners (S1-S11, S_Default): Always run, fast
-  - Heavy Miners (S12, S13): Only run if unexplained non-background pixels exist
-  - Gate Condition: If S2/S6/S10 claim all non-zero output pixels, skip S12/S13
+  - Heavy Miners (S12, S13, S14): Only run if unexplained non-background pixels exist
+    * S12: Raycasting (8-directional projection)
+    * S13: Gravity (object movement physics)
+    * S14: Topology (flood fill, hole detection - uses scipy)
+  - Gate Condition: If S2/S6/S10 claim all non-zero output pixels, skip Heavy Miners
   - Result: 90% of tasks get 10x speedup, 10% that need Heavy Physics pay the cost
 
 The orchestrator does not filter, rank, or validate coverage - it simply
@@ -34,6 +37,7 @@ from src.law_mining.mine_s3_s4_s8_s9 import mine_S3, mine_S4, mine_S8, mine_S9
 from src.law_mining.mine_s5_s6_s7_s11 import mine_S5, mine_S6, mine_S7, mine_S11
 from src.law_mining.mine_s12 import mine_S12
 from src.law_mining.mine_s13 import mine_S13
+from src.law_mining.mine_s14 import mine_S14
 from src.law_mining.mine_s_default import mine_S_Default
 
 
@@ -137,11 +141,13 @@ def mine_law_config(task_context: TaskContext) -> TaskLawConfig:
 
     # S12: generalized raycasting (8-directional projection)
     # S13: gravity / object movement physics
+    # S14: topology / flood fill (uses scipy)
     # Only run if unexplained non-background pixels exist (Lazy Evaluation)
     if unexplained_active_exists:
         # Pass claimed_roles so S12 only operates on "Dark Matter" (unclaimed pixels)
         schema_instances.extend(mine_S12(task_context, roles, role_stats, claimed_roles))
         schema_instances.extend(mine_S13(task_context, roles, role_stats))
+        schema_instances.extend(mine_S14(task_context, roles, role_stats))
 
     # S_Default: law of inertia for unconstrained pixels
     schema_instances.extend(mine_S_Default(task_context, roles, role_stats))

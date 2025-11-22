@@ -33,11 +33,12 @@ from src.schemas.s10_frame_border import build_S10_constraints
 from src.schemas.s11_local_codebook import build_S11_constraints
 from src.schemas.s12_projection import build_S12_constraints
 from src.schemas.s13_gravity import build_S13_constraints
+from src.schemas.s14_topology import build_S14_constraints
 from src.schemas.s_default import build_S_Default_constraints
 
 
 # =============================================================================
-# Schema builders (S1-S12 + S_Default) are implemented in separate modules (M3.1-M3.5)
+# Schema builders (S1-S14 + S_Default) are implemented in separate modules (M3.1-M3.5)
 # =============================================================================
 
 
@@ -59,6 +60,7 @@ BUILDERS: Dict[str, Callable[[TaskContext, Dict[str, Any], ConstraintBuilder], N
     "S11": build_S11_constraints,
     "S12": build_S12_constraints,
     "S13": build_S13_constraints,
+    "S14": build_S14_constraints,
     "S_Default": build_S_Default_constraints,
 }
 
@@ -154,10 +156,10 @@ if __name__ == "__main__":
     print("-" * 70)
     pprint(sorted(BUILDERS.keys()))
 
-    expected_keys = {f"S{i}" for i in range(1, 13)} | {"S_Default"}
+    expected_keys = {f"S{i}" for i in range(1, 15)} | {"S_Default"}
     assert set(BUILDERS.keys()) == expected_keys, \
-        f"Expected builder keys S1..S12 + S_Default, got {set(BUILDERS.keys())}"
-    print(f"  ✓ All 13 builders registered (S1-S12 + S_Default)")
+        f"Expected builder keys S1..S14 + S_Default, got {set(BUILDERS.keys())}"
+    print(f"  ✓ All 15 builders registered (S1-S14 + S_Default)")
 
     print("\n2. Testing dispatch with all builders:")
     print("-" * 70)
