@@ -304,7 +304,7 @@ def mine_S12(
     """
     Mine S12 ray patterns from training examples.
 
-    Algorithm (PHYSICS-FIRST + OCCAM'S RAZOR + BASIS ORTHOGONALIZATION):
+    Algorithm (PHYSICS-FIRST + OCCAM'S RAZOR + BASIS ORTHOGONALIZATION + TOP-K):
       1. Collect all unique neighborhood hashes from training examples
       2. For each physics combination (vector, draw_color, stop_condition, include_seed):
          - Find ALL hashes that are valid for this physics
@@ -312,13 +312,16 @@ def mine_S12(
          - Validate: all ray pixels must match ground truth
          - Count kinetic utility ONLY on unclaimed pixels (Dark Matter)
          - Compute max reach (Chebyshev distance from seed)
-         - If valid, has kinetic utility, AND reach > 1, emit ONE global SchemaInstance
+         - If valid, has kinetic utility >= 5, AND reach > 1, add to candidates
+      3. Rank candidates by kinetic utility (score), keep only Top 32
 
     This implements:
       - Physics-first grouping: reduces instances from ~760k to ~240
       - Occam's Razor: S12 only operates on pixels NOT claimed by S2/S6/S10
       - Basis Orthogonalization: S12 handles action-at-distance (reach > 1),
         S5 handles local transformations (reach ≤ 1)
+      - Competitive Law Selection: Rank by utility, keep Top-32
+        (geometric bound: 8 vectors × 4 physics variations)
 
     Args:
         task_context: TaskContext with training examples
@@ -327,9 +330,14 @@ def mine_S12(
         claimed_roles: Set of role_ids claimed by simpler schemas (S2/S6/S10)
 
     Returns:
-        List of SchemaInstance objects for valid ray patterns
+        List of SchemaInstance objects for valid ray patterns (max 32)
     """
     instances: List[SchemaInstance] = []
+
+    # Competitive law selection: collect candidates with scores
+    candidates: List[Dict[str, Any]] = []
+    TOP_K = 32  # Geometric bound: 8 vectors × 4 physics variations
+    MIN_AFFECTED = 5  # Thermodynamic threshold: skip noise patterns
 
     # Step 0: S12 only applies to geometry-preserving tasks
     # If any training example has input.shape != output.shape, S12 is not applicable
@@ -395,9 +403,9 @@ def mine_S12(
                                 claimed_roles
                             )
 
-                    # PRUNE Zero-Action Laws (physics that do no work)
-                    if total_affected_pixels < 1:
-                        continue  # Skip vacuous physics tuple
+                    # PRUNE Low-Utility Laws (thermodynamic threshold)
+                    if total_affected_pixels < MIN_AFFECTED:
+                        continue  # Skip noise patterns (< 5 pixels affected)
 
                     # PRUNE Micro-Rays (Gauge Redundancy with S5)
                     # Compute maximum reach across all valid hashes
@@ -417,7 +425,7 @@ def mine_S12(
                     if max_reach <= 1:
                         continue  # Skip micro-rays (S5-redundant)
 
-                    # If we found valid hashes with kinetic utility AND reach > 1, emit ONE GLOBAL instance
+                    # If we found valid hashes with kinetic utility AND reach > 1, add to candidates
                     # The dispatcher will inject example_type/example_index at runtime
                     if valid_hashes:
                         params = {
@@ -430,10 +438,19 @@ def mine_S12(
                             }]
                         }
 
-                        instances.append(SchemaInstance(
-                            family_id="S12",
-                            params=params
-                        ))
+                        candidates.append({
+                            "score": total_affected_pixels,  # Kinetic utility
+                            "params": params
+                        })
+
+    # COMPETITIVE LAW SELECTION: Sort by score descending, keep Top-K
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+
+    for c in candidates[:TOP_K]:
+        instances.append(SchemaInstance(
+            family_id="S12",
+            params=c["params"]
+        ))
 
     return instances
 
@@ -446,26 +463,29 @@ if __name__ == "__main__":
     print("Testing S12 miner with toy example...")
     print("=" * 70)
 
-    # Create a 5x5 grid with diagonal ray pattern
-    # Seed at (1,1), ray goes SE (1,1) with color 6
-    input_grid = np.zeros((5, 5), dtype=int)
-    input_grid[1, 1] = 1  # Seed pixel
+    # Create a 7x7 grid with diagonal ray pattern (>= 5 affected pixels)
+    # Seed at (0,0), ray goes SE (1,1) with color 6
+    input_grid = np.zeros((7, 7), dtype=int)
+    input_grid[0, 0] = 1  # Seed pixel
 
-    output_grid = np.zeros((5, 5), dtype=int)
-    output_grid[2, 2] = 6  # Ray pixel 1
-    output_grid[3, 3] = 6  # Ray pixel 2
-    output_grid[4, 4] = 6  # Ray pixel 3
+    output_grid = np.zeros((7, 7), dtype=int)
+    output_grid[1, 1] = 6  # Ray pixel 1
+    output_grid[2, 2] = 6  # Ray pixel 2
+    output_grid[3, 3] = 6  # Ray pixel 3
+    output_grid[4, 4] = 6  # Ray pixel 4
+    output_grid[5, 5] = 6  # Ray pixel 5
+    output_grid[6, 6] = 6  # Ray pixel 6 (total: 6 affected pixels >= MIN_AFFECTED=5)
 
     ex_train = build_example_context(input_grid, output_grid)
-    ex_train.neighborhood_hashes = {(1, 1): 12345}  # Manually set hash for seed
+    ex_train.neighborhood_hashes = {(0, 0): 12345}  # Manually set hash for seed
 
     # Create test example (same pattern, miner should apply to it)
-    ex_test = build_example_context(input_grid, np.zeros((5, 5), dtype=int))
-    ex_test.neighborhood_hashes = {(1, 1): 12345}  # Same seed hash
+    ex_test = build_example_context(input_grid, np.zeros((7, 7), dtype=int))
+    ex_test.neighborhood_hashes = {(0, 0): 12345}  # Same seed hash
 
     ctx = TaskContext(train_examples=[ex_train], test_examples=[ex_test], C=10)
 
-    print("Test 1: Should find diagonal SE ray")
+    print("Test 1: Should find diagonal SE ray (6 affected pixels)")
     print("-" * 70)
 
     instances = mine_S12(ctx, {}, {}, set())
@@ -483,6 +503,6 @@ if __name__ == "__main__":
 
     assert found_se_ray, "Expected to find SE ray pattern"
 
-    print(f"\nTotal instances mined: {len(instances)}")
+    print(f"\nTotal instances mined: {len(instances)} (max 32)")
     print("=" * 70)
     print("✓ S12 miner self-test passed.")

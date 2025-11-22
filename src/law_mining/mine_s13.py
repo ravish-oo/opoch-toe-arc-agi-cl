@@ -53,17 +53,22 @@ def compute_centroid(component: Component) -> Tuple[float, float]:
 
 def detect_mobile_colors(
     task_context: TaskContext,
-    vector: Tuple[int, int]
+    vector: Tuple[int, int],
+    threshold: float = 0.9
 ) -> Set[int]:
     """
     Empirically detect which colors move in the given vector direction.
 
-    A color is mobile if ANY component of that color shifts its centroid
-    in the vector direction (shift = vector * k, where k > 0).
+    Uses pooled consistency check: A color is mobile if >90% of its components
+    (across ALL training examples) shift in the vector direction.
+
+    This prevents false positives where a minority of components move
+    (e.g., 1 falling object among 50 stationary walls of the same color).
 
     Args:
         task_context: TaskContext with training examples
         vector: (dr, dc) gravity direction
+        threshold: Minimum consistency ratio (default 0.9 = 90%)
 
     Returns:
         Set of mobile color values
@@ -71,29 +76,38 @@ def detect_mobile_colors(
     mobile_colors: Set[int] = set()
     dr, dc = vector
 
+    # Get all colors present in inputs (pooled across all examples)
+    all_colors: Set[int] = set()
     for ex in task_context.train_examples:
-        if ex.output_grid is None:
-            continue
+        all_colors.update(set(ex.input_grid.flatten()) - {0})
 
-        input_grid = ex.input_grid
-        output_grid = ex.output_grid
+    # For each color, compute pooled consistency
+    for color in all_colors:
+        total_components = 0
+        moved_components = 0
 
-        # Get all non-zero colors in input
-        input_colors = set(input_grid.flatten()) - {0}
+        # Pool statistics across ALL training examples
+        for ex in task_context.train_examples:
+            if ex.output_grid is None:
+                continue
 
-        for color in input_colors:
+            input_grid = ex.input_grid
+            output_grid = ex.output_grid
+
             # Get components of this color in input and output
             components_in = [comp for comp in connected_components_by_color(input_grid)
                            if comp.color == color]
             components_out = [comp for comp in connected_components_by_color(output_grid)
                             if comp.color == color]
 
-            # Check if ANY component shifted in vector direction
+            total_components += len(components_in)
+
+            # Check which components moved in vector direction
             for comp_in in components_in:
                 centroid_in = compute_centroid(comp_in)
 
                 # Try to find matching component in output
-                # (Look for component with similar size/shape that shifted)
+                moved = False
                 for comp_out in components_out:
                     centroid_out = compute_centroid(comp_out)
 
@@ -102,7 +116,6 @@ def detect_mobile_colors(
                     shift_c = centroid_out[1] - centroid_in[1]
 
                     # Check if shift aligns with vector (shift == vector * k, k > 0)
-                    # We need to check both components match proportionally
                     if dr != 0:
                         # Primary direction is vertical
                         k = shift_r / dr
@@ -110,7 +123,7 @@ def detect_mobile_colors(
                             # Check if horizontal shift is consistent
                             expected_c_shift = dc * k
                             if abs(shift_c - expected_c_shift) < 0.5:
-                                mobile_colors.add(color)
+                                moved = True
                                 break
                     elif dc != 0:
                         # Primary direction is horizontal
@@ -119,12 +132,17 @@ def detect_mobile_colors(
                             # Check if vertical shift is consistent
                             expected_r_shift = dr * k
                             if abs(shift_r - expected_r_shift) < 0.5:
-                                mobile_colors.add(color)
+                                moved = True
                                 break
 
-                # If we found this color is mobile, no need to check more components
-                if color in mobile_colors:
-                    break
+                if moved:
+                    moved_components += 1
+
+        # Compute pooled consistency and check threshold
+        if total_components > 0:
+            consistency = moved_components / total_components
+            if consistency > threshold:
+                mobile_colors.add(color)
 
     return mobile_colors
 
