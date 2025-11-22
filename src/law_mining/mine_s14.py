@@ -286,21 +286,128 @@ def count_affected_pixels_background(
     return total
 
 
+def is_destructive_fill_enclosed(
+    task_context: TaskContext,
+    boundary_color: int,
+    fill_color: int,
+    roles: Dict[Any, int],
+    claimed_roles: Set[int]
+) -> bool:
+    """
+    Check if fill_enclosed would destroy unclaimed Active Information.
+
+    A fill is destructive if it would overwrite pixels that:
+    1. Are in the fill region (holes)
+    2. Don't match fill_color in ground truth
+    3. Are NOT claimed by higher-authority schemas (S2/S6/S10)
+
+    Args:
+        task_context: TaskContext with training examples
+        boundary_color: Color that forms the boundary
+        fill_color: Color that would fill the holes
+        roles: Role mapping (kind, ex_idx, r, c) -> role_id
+        claimed_roles: Set of role_ids claimed by higher schemas
+
+    Returns:
+        True if fill would destroy unclaimed data (destructive)
+    """
+    for ex_idx, ex in enumerate(task_context.train_examples):
+        if ex.output_grid is None:
+            continue
+
+        input_grid = ex.input_grid
+        output_grid = ex.output_grid
+
+        # Get the fill region
+        holes_mask = find_holes_in_boundary(input_grid, boundary_color)
+
+        if not np.any(holes_mask):
+            continue
+
+        # Find mismatched pixels: in region AND GT != fill_color
+        mismatches = holes_mask & (output_grid != fill_color)
+
+        # Check each mismatched pixel
+        for r, c in zip(*np.where(mismatches)):
+            role_key = ("train_out", ex_idx, int(r), int(c))
+            if role_key in roles:
+                role_id = roles[role_key]
+                if role_id not in claimed_roles:
+                    # This pixel is unclaimed and would be overwritten
+                    return True  # Destructive
+
+    return False  # Safe
+
+
+def is_destructive_fill_background(
+    task_context: TaskContext,
+    fill_color: int,
+    roles: Dict[Any, int],
+    claimed_roles: Set[int]
+) -> bool:
+    """
+    Check if fill_background would destroy unclaimed Active Information.
+
+    A fill is destructive if it would overwrite pixels that:
+    1. Are in the background region
+    2. Don't match fill_color in ground truth
+    3. Are NOT claimed by higher-authority schemas (S2/S6/S10)
+
+    Args:
+        task_context: TaskContext with training examples
+        fill_color: Color that would fill the background
+        roles: Role mapping (kind, ex_idx, r, c) -> role_id
+        claimed_roles: Set of role_ids claimed by higher schemas
+
+    Returns:
+        True if fill would destroy unclaimed data (destructive)
+    """
+    for ex_idx, ex in enumerate(task_context.train_examples):
+        if ex.output_grid is None:
+            continue
+
+        input_grid = ex.input_grid
+        output_grid = ex.output_grid
+
+        # Get the fill region
+        background_mask = find_background_region(input_grid)
+
+        if not np.any(background_mask):
+            continue
+
+        # Find mismatched pixels: in region AND GT != fill_color
+        mismatches = background_mask & (output_grid != fill_color)
+
+        # Check each mismatched pixel
+        for r, c in zip(*np.where(mismatches)):
+            role_key = ("train_out", ex_idx, int(r), int(c))
+            if role_key in roles:
+                role_id = roles[role_key]
+                if role_id not in claimed_roles:
+                    # This pixel is unclaimed and would be overwritten
+                    return True  # Destructive
+
+    return False  # Safe
+
+
 def mine_S14(
     task_context: TaskContext,
     roles: Dict[Any, int],
-    role_stats: Dict[int, Dict[str, Any]]
+    role_stats: Dict[int, Dict[str, Any]],
+    claimed_roles: Set[int] = None
 ) -> List[SchemaInstance]:
     """
     Mine S14 topology patterns from training examples.
 
-    Algorithm (Signal/Noise Separation):
+    Algorithm (Signal/Noise Separation + Safety Check):
       1. Check geometry-preserving constraint
       2. For each boundary_color:
          - Detect dominant fill color for holes using Signal/Noise ratio
-         - If valid and has kinetic utility >= 1, emit fill_enclosed instance
+         - SAFETY CHECK: Reject if would destroy unclaimed pixels
+         - If valid, safe, and has kinetic utility >= 1, emit fill_enclosed instance
       3. Detect dominant fill color for background using Signal/Noise ratio
-         - If valid and has kinetic utility >= 1, emit fill_background instance
+         - SAFETY CHECK: Reject if would destroy unclaimed pixels
+         - If valid, safe, and has kinetic utility >= 1, emit fill_background instance
 
     Signal/Noise Logic:
       - Majority: dominant > 50% of region
@@ -308,10 +415,16 @@ def mine_S14(
       - This accepts "Background with Objects" (70/30)
       - This rejects "Texture/Checkerboard" (50/50) → S5's domain
 
+    Safety Check (Protect Dark Matter):
+      - Before emitting a fill rule, verify it doesn't overwrite unclaimed pixels
+      - If a mismatched pixel is claimed by S2/S6/S10, it's safe (they'll override)
+      - If a mismatched pixel is unclaimed, the fill is destructive → reject
+
     Args:
         task_context: TaskContext with training examples
-        roles: Role mapping (unused but kept for API consistency)
+        roles: Role mapping (kind, ex_idx, r, c) -> role_id
         role_stats: Role statistics (unused but kept for API consistency)
+        claimed_roles: Set of role_ids claimed by higher schemas (S2/S6/S10)
 
     Returns:
         List of SchemaInstance objects for valid topology patterns
@@ -320,6 +433,10 @@ def mine_S14(
 
     if not SCIPY_AVAILABLE:
         return instances  # Cannot mine without scipy
+
+    # Default to empty set if not provided
+    if claimed_roles is None:
+        claimed_roles = set()
 
     # Step 0: S14 only applies to geometry-preserving tasks
     for ex in task_context.train_examples:
@@ -340,6 +457,12 @@ def mine_S14(
         if is_valid and fill_color is not None:
             # Check boundary != fill (can't fill with same color as boundary)
             if boundary_color != fill_color:
+                # SAFETY CHECK: Don't destroy unclaimed data
+                if is_destructive_fill_enclosed(
+                    task_context, boundary_color, fill_color, roles, claimed_roles
+                ):
+                    continue  # Reject destructive fill
+
                 affected = count_affected_pixels_enclosed(task_context, boundary_color, fill_color)
                 if affected >= 1:
                     instances.append(SchemaInstance(
@@ -355,15 +478,19 @@ def mine_S14(
     fill_color, is_valid = detect_dominant_fill_background(task_context)
 
     if is_valid and fill_color is not None:
-        affected = count_affected_pixels_background(task_context, fill_color)
-        if affected >= 1:
-            instances.append(SchemaInstance(
-                family_id="S14",
-                params={
-                    "operation": "fill_background",
-                    "fill_color": fill_color
-                }
-            ))
+        # SAFETY CHECK: Don't destroy unclaimed data
+        if not is_destructive_fill_background(
+            task_context, fill_color, roles, claimed_roles
+        ):
+            affected = count_affected_pixels_background(task_context, fill_color)
+            if affected >= 1:
+                instances.append(SchemaInstance(
+                    family_id="S14",
+                    params={
+                        "operation": "fill_background",
+                        "fill_color": fill_color
+                    }
+                ))
 
     return instances
 

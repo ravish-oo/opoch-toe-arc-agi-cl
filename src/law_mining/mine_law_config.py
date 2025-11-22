@@ -144,10 +144,10 @@ def mine_law_config(task_context: TaskContext) -> TaskLawConfig:
     # S14: topology / flood fill (uses scipy)
     # Only run if unexplained non-background pixels exist (Lazy Evaluation)
     if unexplained_active_exists:
-        # Pass claimed_roles so S12 only operates on "Dark Matter" (unclaimed pixels)
+        # Pass claimed_roles so S12/S14 only operate on "Dark Matter" (unclaimed pixels)
         schema_instances.extend(mine_S12(task_context, roles, role_stats, claimed_roles))
         schema_instances.extend(mine_S13(task_context, roles, role_stats))
-        schema_instances.extend(mine_S14(task_context, roles, role_stats))
+        schema_instances.extend(mine_S14(task_context, roles, role_stats, claimed_roles))
 
     # S_Default: law of inertia for unconstrained pixels
     schema_instances.extend(mine_S_Default(task_context, roles, role_stats))
