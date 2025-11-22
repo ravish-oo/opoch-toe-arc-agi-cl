@@ -10,12 +10,13 @@ This module provides the high-level law mining function that:
 
 Architecture: "Fast-Path" with Physics Profiler + Lazy Evaluation
   - Light Miners (S1-S11, S_Default): Always run, fast
-  - Heavy Miners (S12, S13, S14): Gated by TWO conditions:
+  - Heavy Miners (S12, S13, S14, S16): Gated by TWO conditions:
     1. Lazy Evaluation: Unexplained non-background pixels exist
     2. Physics Profiler: Conservation laws permit the physics
        * S12 (Rays): Only if allows_creation (mass not conserved or new colors)
        * S13 (Gravity): Only if allows_movement (mass conserved + geometry preserved)
        * S14 (Topology): Only if allows_creation (mass not conserved or new colors)
+       * S16 (Chemistry): Only if allows_creation (reactions change colors/mass)
   - Result: Drastically reduced "Virtual Work" - don't run creation physics
     on movement tasks, don't run movement physics on creation tasks.
 
@@ -40,6 +41,7 @@ from src.law_mining.mine_s5_s6_s7_s11 import mine_S5, mine_S6, mine_S7, mine_S11
 from src.law_mining.mine_s12 import mine_S12
 from src.law_mining.mine_s13 import mine_S13
 from src.law_mining.mine_s14 import mine_S14
+from src.law_mining.mine_s16 import mine_S16
 from src.law_mining.mine_s_default import mine_S_Default
 from src.diagnostics.profiler import profile_task
 
@@ -161,6 +163,11 @@ def mine_law_config(task_context: TaskContext) -> TaskLawConfig:
         # Only run if profile.allows_creation (mass not conserved or new colors)
         if profile.allows_creation:
             schema_instances.extend(mine_S14(task_context, roles, role_stats, claimed_roles))
+
+        # S16: Interaction / Chemistry - CREATION physics (neighbor-based reactions)
+        # Only run if profile.allows_creation (reactions change colors/mass)
+        if profile.allows_creation:
+            schema_instances.extend(mine_S16(task_context, roles, role_stats))
 
     # S_Default: law of inertia for unconstrained pixels
     schema_instances.extend(mine_S_Default(task_context, roles, role_stats))
