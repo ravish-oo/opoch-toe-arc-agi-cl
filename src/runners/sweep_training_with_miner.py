@@ -51,6 +51,7 @@ def sweep_training_with_miner(
     failures_log_path: Path,
     validate_test_labels: bool = False,
     solutions_path: Path | None = None,
+    task_list_path: Path | None = None,
 ) -> None:
     """
     Run law mining + kernel validation over all training tasks.
@@ -83,15 +84,26 @@ def sweep_training_with_miner(
         >>> sweep_training_with_miner(challenges, failures, validate_test_labels=True, solutions_path=solutions)
         # Processes all 1000 training tasks with test validation
     """
-    # Load all task IDs
-    task_ids = load_training_task_ids(challenges_path)
+    # Load task IDs (from custom list or all training tasks)
+    if task_list_path is not None:
+        # Load custom task list from JSON
+        with task_list_path.open("r", encoding="utf-8") as f:
+            task_list_data = json.load(f)
+        task_ids = task_list_data.get("task_ids", [])
+        sweep_name = f"Mini Sweep ({task_list_path.name})"
+    else:
+        # Load all task IDs from challenges
+        task_ids = load_training_task_ids(challenges_path)
+        sweep_name = "Training Sweep with Law Miner"
 
     print("=" * 70)
-    print(f"Training Sweep with Law Miner")
+    print(sweep_name)
     print("=" * 70)
     print(f"Total tasks: {len(task_ids)}")
     print(f"Challenges: {challenges_path}")
     print(f"Failures log: {failures_log_path}")
+    if task_list_path:
+        print(f"Task list: {task_list_path}")
     print("=" * 70)
 
     # Create failures log directory if needed
@@ -188,9 +200,23 @@ def sweep_training_with_miner(
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run law miner sweep over ARC tasks")
+    parser.add_argument(
+        "--task-list",
+        type=str,
+        default=None,
+        help="Path to JSON file with custom task list (e.g., data/mini_sweep.json)"
+    )
+    args = parser.parse_args()
+
     # Default paths for CLI run
     challenges_path = Path("data/arc-agi_training_challenges.json")
     failures_log_path = Path("logs/miner_training_failures.jsonl")
+
+    # Parse task list path
+    task_list_path = Path(args.task_list) if args.task_list else None
 
     # Toggle for train-only vs train+test validation
     validate_test = True  # Set to False for train-only runs
@@ -201,4 +227,5 @@ if __name__ == "__main__":
         failures_log_path=failures_log_path,
         validate_test_labels=validate_test,
         solutions_path=Path("data/arc-agi_training_solutions.json") if validate_test else None,
+        task_list_path=task_list_path,
     )

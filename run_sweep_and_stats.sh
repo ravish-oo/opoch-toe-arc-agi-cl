@@ -1,14 +1,53 @@
 #!/bin/bash
 
 # Script to run sweep_training_with_miner and append statistics
+# Usage:
+#   ./run_sweep_and_stats.sh                    # Full sweep (1000 tasks)
+#   ./run_sweep_and_stats.sh --mini             # Mini sweep (30 tasks from data/mini_sweep.json)
+#   ./run_sweep_and_stats.sh --tasks path.json  # Custom task list
+
 RESULTS_FILE="docs/human_pair_programmer_docs/results/results_v2.txt"
+TASK_LIST=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --mini)
+            TASK_LIST="data/mini_sweep.json"
+            RESULTS_FILE="docs/human_pair_programmer_docs/results/results_mini.txt"
+            shift
+            ;;
+        --tasks)
+            TASK_LIST="$2"
+            RESULTS_FILE="docs/human_pair_programmer_docs/results/results_custom.txt"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage:"
+            echo "  ./run_sweep_and_stats.sh                    # Full sweep (1000 tasks)"
+            echo "  ./run_sweep_and_stats.sh --mini             # Mini sweep (30 tasks)"
+            echo "  ./run_sweep_and_stats.sh --tasks path.json  # Custom task list"
+            exit 1
+            ;;
+    esac
+done
 
 echo "Running sweep_training_with_miner..."
 echo "Output will be saved to: $RESULTS_FILE"
+if [ -n "$TASK_LIST" ]; then
+    echo "Task list: $TASK_LIST"
+fi
 echo ""
 
+# Build command with optional task list
+CMD="python -m src.runners.sweep_training_with_miner"
+if [ -n "$TASK_LIST" ]; then
+    CMD="$CMD --task-list $TASK_LIST"
+fi
+
 # Run the command and capture output, overwriting the file
-python -m src.runners.sweep_training_with_miner > "$RESULTS_FILE" 2>&1
+$CMD > "$RESULTS_FILE" 2>&1
 
 # Check if command was successful
 if [ $? -ne 0 ]; then
@@ -52,4 +91,3 @@ echo "  Status: mismatch_test $MISMATCH_TEST_COUNT"
 echo "  Status: mismatch_train $MISMATCH_TRAIN_COUNT"
 echo "  Status: ok $OK_COUNT"
 echo "  Exceptions $EXCEPTION_COUNT"
-

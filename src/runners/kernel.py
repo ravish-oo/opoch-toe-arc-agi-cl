@@ -143,6 +143,17 @@ def solve_arc_task_with_diagnostics(
             # Build constraints for this example
             builder = ConstraintBuilder()
             for schema_inst in law_config.schema_instances:
+                # Filter: only apply if schema instance matches this example
+                # Schema instances with example_type/index are example-specific
+                inst_ex_type = schema_inst.params.get("example_type")
+                inst_ex_idx = schema_inst.params.get("example_index")
+
+                # Skip if this instance is for a different example
+                if inst_ex_type is not None and inst_ex_type != "train":
+                    continue
+                if inst_ex_idx is not None and inst_ex_idx != i:
+                    continue
+
                 apply_schema_instance(
                     family_id=schema_inst.family_id,
                     schema_params=schema_inst.params,
@@ -195,6 +206,16 @@ def solve_arc_task_with_diagnostics(
                 # Build constraints for this example
                 builder = ConstraintBuilder()
                 for schema_inst in law_config.schema_instances:
+                    # Filter: only apply if schema instance matches this example
+                    inst_ex_type = schema_inst.params.get("example_type")
+                    inst_ex_idx = schema_inst.params.get("example_index")
+
+                    # Skip if this instance is for a different example
+                    if inst_ex_type is not None and inst_ex_type != "test":
+                        continue
+                    if inst_ex_idx is not None and inst_ex_idx != i:
+                        continue
+
                     apply_schema_instance(
                         family_id=schema_inst.family_id,
                         schema_params=schema_inst.params,

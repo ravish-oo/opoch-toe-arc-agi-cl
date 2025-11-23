@@ -1,9 +1,13 @@
 """
-S8 schema builder: Tiling / replication.
+S8 schema builder: Tiling / replication with symmetric transforms.
 
 This implements the S8 schema from the math kernel spec (section 2):
     "Copy a small patch periodically to fill an area, possibly with padding.
      For each tile position (i,j), stamp tile pattern T at that location."
+
+Extended to support symmetric tiling (wallpaper groups):
+    - Each tile position can have a transform: identity, flipx, flipy, rot90, etc.
+    - This captures mirror tiling and other repeating patterns with symmetry.
 
 S8 is geometry-preserving: output has same shape as input.
 This builder applies pre-determined tiling patterns (from Pi-agent) as preferences.
@@ -14,6 +18,57 @@ from ast import literal_eval
 
 from src.schemas.context import TaskContext
 from src.constraints.builder import ConstraintBuilder
+
+
+# =============================================================================
+# Transform Operations
+# =============================================================================
+
+def apply_inverse_transform(
+    dr: int, dc: int,
+    tile_h: int, tile_w: int,
+    transform: str
+) -> Tuple[int, int]:
+    """
+    Apply inverse transform to offset (dr, dc) to get source offset in base tile.
+
+    When a tile is transformed (e.g., FlipX), the pixel at offset (dr, dc)
+    in the transformed tile corresponds to a different offset in the base tile.
+    This function computes that source offset.
+
+    Args:
+        dr, dc: Offset within the transformed tile
+        tile_h, tile_w: Tile dimensions
+        transform: Transform name ("identity", "flipx", "flipy", "rot90", etc.)
+
+    Returns:
+        (src_dr, src_dc): Source offset in the base tile
+    """
+    if transform == "identity":
+        return (dr, dc)
+    elif transform == "flipx":
+        # Horizontal flip: column is mirrored
+        return (dr, tile_w - 1 - dc)
+    elif transform == "flipy":
+        # Vertical flip: row is mirrored
+        return (tile_h - 1 - dr, dc)
+    elif transform == "flipxy":
+        # Both flips (180 rotation)
+        return (tile_h - 1 - dr, tile_w - 1 - dc)
+    elif transform == "rot90":
+        # 90 degrees clockwise: (dr, dc) -> (dc, tile_h - 1 - dr)
+        # Inverse is 270 degrees (or 90 counter-clockwise)
+        return (tile_w - 1 - dc, dr)
+    elif transform == "rot180":
+        # 180 degrees: same as flipxy
+        return (tile_h - 1 - dr, tile_w - 1 - dc)
+    elif transform == "rot270":
+        # 270 degrees clockwise (90 counter-clockwise)
+        # Inverse is 90 degrees clockwise
+        return (dc, tile_h - 1 - dr)
+    else:
+        # Unknown transform - fallback to identity
+        return (dr, dc)
 
 
 def build_S8_constraints(
@@ -39,13 +94,21 @@ def build_S8_constraints(
             "(1,0)": 3,   # offset (1,0) in tile → color 3
             "(1,1)": 4    # offset (1,1) in tile → color 4
           },
+          "tile_transforms": {           # OPTIONAL: per-tile-position transforms
+            "(0,0)": "identity",         # tile at position (0,0) uses identity
+            "(0,1)": "flipx",            # tile at position (0,1) is horizontally flipped
+            "(1,0)": "flipx",            # etc.
+            "(1,1)": "identity"
+          },
           "region_origin": "(r0,c0)",  # top-left of tiling region
           "region_height": int,
           "region_width": int
         }
 
     Where:
-        - tile_pattern defines colors at offsets relative to tile origin
+        - tile_pattern defines colors at offsets relative to tile origin (base tile)
+        - tile_transforms specifies transform for each tile position (default: identity)
+        - Supported transforms: identity, flipx, flipy, flipxy, rot90, rot180, rot270
         - region defines where to tile within the output grid
         - tiles are stamped with stride (tile_height, tile_width)
 
@@ -71,7 +134,7 @@ def build_S8_constraints(
         ...     "region_height": 4,
         ...     "region_width": 4
         ... }
-        >>> build_S8_preferences(ctx, params, builder)
+        >>> build_S8_constraints(ctx, params, builder)
     """
     # 1. Select example
     example_type = schema_params.get("example_type", "train")
@@ -88,11 +151,15 @@ def build_S8_constraints(
 
     # 2. Get grid dimensions
     # S8 tiles pattern into OUTPUT grid
-    # Use output dimensions for indexing into y variables
+    # For test examples, output_H/W may be None - use region_height/width from params
     H = ex.output_H
     W = ex.output_W
     if H is None or W is None:
-        return  # No output grid to constrain
+        # Fall back to region dimensions from params (required for test examples)
+        H = schema_params.get("region_height")
+        W = schema_params.get("region_width")
+        if H is None or W is None:
+            return  # No dimensions available
     C = task_context.C
 
     # 3. Parse tiling parameters
@@ -126,19 +193,46 @@ def build_S8_constraints(
     if not tile_pattern:
         return  # No pattern to tile
 
+    # Parse tile_transforms (optional - defaults to identity for all positions)
+    raw_transforms = schema_params.get("tile_transforms", {})
+    tile_transforms: Dict[Tuple[int, int], str] = {}
+
+    for k_str, transform in raw_transforms.items():
+        try:
+            tile_r, tile_c = literal_eval(k_str)
+            tile_transforms[(tile_r, tile_c)] = str(transform)
+        except (ValueError, SyntaxError):
+            continue
+
     # 4. Tile the pattern across the region
     # Loop over tile origins with stride (tile_h, tile_w)
+    tile_row = 0  # Tile position counter (row)
     tr = r0
     while tr < r0 + region_h:
+        tile_col = 0  # Tile position counter (col)
         tc = c0
         while tc < c0 + region_w:
-            # Stamp tile pattern at (tr, tc)
-            for (dr, dc), color in tile_pattern.items():
-                rr = tr + dr
-                cc = tc + dc
+            # Get transform for this tile position (default: identity)
+            transform = tile_transforms.get((tile_row, tile_col), "identity")
 
-                # Check bounds
-                if 0 <= rr < H and 0 <= cc < W:
+            # Stamp tile pattern at (tr, tc) with transform applied
+            for dr in range(tile_h):
+                for dc in range(tile_w):
+                    rr = tr + dr
+                    cc = tc + dc
+
+                    # Check bounds
+                    if not (0 <= rr < H and 0 <= cc < W):
+                        continue
+
+                    # Apply inverse transform to get source offset in base tile
+                    src_dr, src_dc = apply_inverse_transform(dr, dc, tile_h, tile_w, transform)
+
+                    # Look up color from base tile pattern
+                    color = tile_pattern.get((src_dr, src_dc))
+                    if color is None:
+                        continue  # No color defined for this offset
+
                     # Validate color is in palette
                     if 0 <= color < C:
                         # Prefer this pixel's color (Tier 3: Local, weight 10.0)
@@ -146,7 +240,9 @@ def build_S8_constraints(
                         builder.prefer_pixel_color(p_idx, color, weight=10.0)
 
             tc += tile_w
+            tile_col += 1
         tr += tile_h
+        tile_row += 1
 
 
 if __name__ == "__main__":
@@ -194,7 +290,7 @@ if __name__ == "__main__":
     }
 
     builder1 = ConstraintBuilder()
-    build_S8_preferences(ctx, params1, builder1)
+    build_S8_constraints(ctx, params1, builder1)
 
     # Should have 16 preferences (4x4 grid fully tiled with 2x2 pattern)
     # 2x2 tiles fit perfectly: (0,0), (0,2), (2,0), (2,2) = 4 tiles
@@ -230,7 +326,7 @@ if __name__ == "__main__":
     }
 
     builder2 = ConstraintBuilder()
-    build_S8_preferences(ctx, params2, builder2)
+    build_S8_constraints(ctx, params2, builder2)
 
     # 3x3 tile in 4x4 region: only (0,0) origin fits fully
     # But (0,3) column is partially outside region_width=4, so we get:
@@ -273,7 +369,7 @@ if __name__ == "__main__":
     }
 
     builder3 = ConstraintBuilder()
-    build_S8_preferences(ctx, params3, builder3)
+    build_S8_constraints(ctx, params3, builder3)
 
     # 1x1 tile in 2x2 region starting at (1,1)
     # Tile origins: (1,1), (1,2), (2,1), (2,2)
@@ -299,7 +395,7 @@ if __name__ == "__main__":
     }
 
     builder4 = ConstraintBuilder()
-    build_S8_preferences(ctx, params4, builder4)
+    build_S8_constraints(ctx, params4, builder4)
 
     expected4 = 0
     print(f"  Expected: {expected4} preferences (empty pattern)")

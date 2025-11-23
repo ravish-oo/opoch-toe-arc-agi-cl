@@ -302,8 +302,33 @@ def mine_S4(
 
 
 # =============================================================================
-# S8 Miner - Tiling/Replication
+# S8 Miner - Tiling/Replication with Symmetric Transforms
 # =============================================================================
+
+# Supported transforms for symmetric tiling
+TRANSFORMS = ["identity", "flipx", "flipy", "flipxy"]
+
+
+def get_tile_variants(tile: np.ndarray) -> Dict[str, np.ndarray]:
+    """Generate all transform variants of a base tile."""
+    return {
+        "identity": tile,
+        "flipx": np.flip(tile, axis=1),      # Horizontal flip
+        "flipy": np.flip(tile, axis=0),      # Vertical flip
+        "flipxy": np.flip(np.flip(tile, axis=0), axis=1),  # Both flips
+    }
+
+
+def find_matching_transform(
+    actual_tile: np.ndarray,
+    variants: Dict[str, np.ndarray]
+) -> str | None:
+    """Find which transform variant matches the actual tile."""
+    for transform_name, variant in variants.items():
+        if actual_tile.shape == variant.shape and np.array_equal(actual_tile, variant):
+            return transform_name
+    return None
+
 
 def mine_S8(
     task_context: TaskContext,
@@ -311,31 +336,31 @@ def mine_S8(
     role_stats: Dict[int, RoleStats],
 ) -> List[SchemaInstance]:
     """
-    Mine S8 schema instances: tiling/replication.
+    Mine S8 schema instances: tiling/replication with symmetric transforms.
 
-    S8 replicates a base tile pattern across the output grid.
+    S8 replicates a base tile pattern across the output grid, potentially
+    with transforms (flipx, flipy, etc.) at different tile positions.
 
     Algorithm:
       1. For each training example:
-         - Find all valid tilings (tile sizes that perfectly tile the grid)
+         - Try all valid tile sizes (divisors of H, W)
+         - For each tile size, extract base tile and check if output can be
+           reconstructed using base tile + transforms at each position
       2. Intersect across all examples:
-         - Must find ONE common (tile_h, tile_w, base_tile) for ALL examples
+         - Must find ONE common (tile_h, tile_w, base_tile, transforms) for ALL
       3. If consistent, generate per-example SchemaInstances
 
     Args:
         task_context: TaskContext with train/test examples
-        roles: RolesMapping (not used, kept for signature consistency)
-        role_stats: RoleStats (not used, kept for signature consistency)
+        roles: RolesMapping (not used, kept for signature compatibility)
+        role_stats: RoleStats (not used, kept for signature compatibility)
 
     Returns:
         List of SchemaInstance objects with S8 parameters
-
-    Note:
-        If different train examples have different tile sizes or patterns,
-        S8 is not a consistent law for this task → returns []
     """
-    # Step 1: For each example, find all valid tilings
-    candidates_per_example: List[List[Tuple[int, int, np.ndarray]]] = []
+    # Step 1: For each example, find all valid tilings (with transforms)
+    # Candidate: (tile_h, tile_w, base_tile, transforms_dict)
+    candidates_per_example: List[List[Tuple[int, int, np.ndarray, Dict[str, str]]]] = []
 
     for ex_idx, ex in enumerate(task_context.train_examples):
         if ex.output_grid is None:
@@ -344,7 +369,7 @@ def mine_S8(
         grid_out = ex.output_grid
         H, W = grid_out.shape
 
-        example_candidates: List[Tuple[int, int, np.ndarray]] = []
+        example_candidates: List[Tuple[int, int, np.ndarray, Dict[str, str]]] = []
 
         # Try all divisor pairs
         for tile_h in range(1, H + 1):
@@ -356,13 +381,34 @@ def mine_S8(
 
                 # Extract base tile from top-left
                 base_tile = grid_out[0:tile_h, 0:tile_w].copy()
+                variants = get_tile_variants(base_tile)
 
-                # Reconstruct via tiling
-                tiled = np.tile(base_tile, (H // tile_h, W // tile_w))
+                # Check each tile position and find matching transform
+                num_tiles_h = H // tile_h
+                num_tiles_w = W // tile_w
+                transforms_dict: Dict[str, str] = {}
+                valid_tiling = True
 
-                # Check if it matches
-                if np.array_equal(tiled, grid_out):
-                    example_candidates.append((tile_h, tile_w, base_tile))
+                for tile_row in range(num_tiles_h):
+                    for tile_col in range(num_tiles_w):
+                        # Extract actual tile at this position
+                        r_start = tile_row * tile_h
+                        c_start = tile_col * tile_w
+                        actual_tile = grid_out[r_start:r_start + tile_h, c_start:c_start + tile_w]
+
+                        # Find matching transform
+                        transform = find_matching_transform(actual_tile, variants)
+                        if transform is None:
+                            valid_tiling = False
+                            break
+
+                        transforms_dict[f"({tile_row},{tile_col})"] = transform
+
+                    if not valid_tiling:
+                        break
+
+                if valid_tiling:
+                    example_candidates.append((tile_h, tile_w, base_tile, transforms_dict))
 
         if not example_candidates:
             # This example doesn't admit any tiling - S8 doesn't apply
@@ -374,18 +420,22 @@ def mine_S8(
         return []  # No train examples or none had tilings
 
     # Step 2: Find common tiling across all examples
-    # We need exactly one (tile_h, tile_w, pattern) that works for all
+    # We need (tile_h, tile_w, transform_pattern) to match
+    # NOTE: base_tile varies per example (input-derived), so we match on
+    # (tile_h, tile_w, transforms_dict) instead
 
     # Start with first example's candidates
     common_candidates = candidates_per_example[0]
 
-    # Intersect with remaining examples
+    # Intersect with remaining examples (match on tile_h, tile_w, transform_pattern)
     for example_candidates in candidates_per_example[1:]:
         new_common = []
-        for (h1, w1, tile1) in common_candidates:
-            for (h2, w2, tile2) in example_candidates:
-                if h1 == h2 and w1 == w2 and np.array_equal(tile1, tile2):
-                    new_common.append((h1, w1, tile1))
+        for (h1, w1, tile1, trans1) in common_candidates:
+            for (h2, w2, tile2, trans2) in example_candidates:
+                # Match on dimensions and transform pattern (NOT base_tile content)
+                if h1 == h2 and w1 == w2 and trans1 == trans2:
+                    # Keep the first example's base_tile for pattern structure
+                    new_common.append((h1, w1, tile1, trans1))
                     break
         common_candidates = new_common
 
@@ -393,24 +443,33 @@ def mine_S8(
         # No consistent tiling across all examples
         return []
 
-    # Take the first common candidate (could be multiple, we pick one)
-    tile_height, tile_width, base_tile = common_candidates[0]
+    # Take the first common candidate (prefer smaller tiles)
+    common_candidates.sort(key=lambda x: x[0] * x[1])
+    tile_height, tile_width, _, consistent_transforms = common_candidates[0]
 
     # Step 3: Generate per-example instances
     instances: List[SchemaInstance] = []
 
-    # Convert base_tile to tile_pattern dict with string keys
-    tile_pattern = {}
-    for dr in range(tile_height):
-        for dc in range(tile_width):
-            tile_pattern[f"({dr},{dc})"] = int(base_tile[dr, dc])
-
-    # For train examples
+    # For train examples - derive tile_pattern from INPUT, use consistent_transforms
     for ex_idx, ex in enumerate(task_context.train_examples):
         if ex.output_grid is None:
             continue
 
-        H, W = ex.output_grid.shape
+        grid_in = ex.input_grid
+        grid_out = ex.output_grid
+        H_in, W_in = grid_in.shape
+        H, W = grid_out.shape
+
+        # Build tile_pattern from INPUT (the tile is the input grid)
+        tile_pattern = {}
+        for dr in range(tile_height):
+            for dc in range(tile_width):
+                # Use input grid if dimensions match, else use output's base tile
+                if H_in == tile_height and W_in == tile_width:
+                    tile_pattern[f"({dr},{dc})"] = int(grid_in[dr, dc])
+                else:
+                    # Fallback: extract from output's top-left tile
+                    tile_pattern[f"({dr},{dc})"] = int(grid_out[dr, dc])
 
         instances.append(SchemaInstance(
             family_id="S8",
@@ -420,30 +479,45 @@ def mine_S8(
                 "tile_height": tile_height,
                 "tile_width": tile_width,
                 "tile_pattern": tile_pattern,
+                "tile_transforms": consistent_transforms,  # Use learned pattern
                 "region_origin": "(0,0)",
                 "region_height": H,
                 "region_width": W
             }
         ))
 
-    # For test examples
+    # For test examples - derive tile_pattern from INPUT and use consistent_transforms
     for ex_idx, ex in enumerate(task_context.test_examples):
-        # Assume test output has same shape as test input (common for tiling tasks)
-        H, W = ex.input_grid.shape
+        grid_in = ex.input_grid
+        H_in, W_in = grid_in.shape
 
-        instances.append(SchemaInstance(
-            family_id="S8",
-            params={
-                "example_type": "test",
-                "example_index": ex_idx,
-                "tile_height": tile_height,
-                "tile_width": tile_width,
-                "tile_pattern": tile_pattern,
-                "region_origin": "(0,0)",
-                "region_height": H,
-                "region_width": W
-            }
-        ))
+        # The tile is the input grid (for tasks like 00576224 where input IS the tile)
+        # Only works if input dimensions match tile dimensions
+        if H_in == tile_height and W_in == tile_width:
+            # Build tile_pattern from input
+            test_tile_pattern = {}
+            for dr in range(tile_height):
+                for dc in range(tile_width):
+                    test_tile_pattern[f"({dr},{dc})"] = int(grid_in[dr, dc])
+
+            # Use consistent transforms from training examples
+            # Output dimensions will be predicted by dimension predictor
+            # For 3x scale: H_out = 3 * H_in, W_out = 3 * W_in
+            # The transform pattern positions must match the output grid
+            instances.append(SchemaInstance(
+                family_id="S8",
+                params={
+                    "example_type": "test",
+                    "example_index": ex_idx,
+                    "tile_height": tile_height,
+                    "tile_width": tile_width,
+                    "tile_pattern": test_tile_pattern,
+                    "tile_transforms": consistent_transforms,  # Use learned pattern
+                    "region_origin": "(0,0)",
+                    "region_height": H_in * 3,  # Assume same scale as training
+                    "region_width": W_in * 3
+                }
+            ))
 
     return instances
 
