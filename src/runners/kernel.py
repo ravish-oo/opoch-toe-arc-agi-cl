@@ -200,6 +200,11 @@ def solve_arc_task_with_diagnostics(
                     # Fallback to input dimensions (should not happen)
                     H_out, W_out = ex.input_H, ex.input_W
 
+                # CRITICAL: Inject predicted dimensions into example context
+                # so that schema builders can access them via ex.output_H/W
+                ex.output_H = H_out
+                ex.output_W = W_out
+
                 num_pixels = H_out * W_out
                 num_colors = ctx.C
 

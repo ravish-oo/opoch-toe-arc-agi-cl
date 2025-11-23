@@ -129,11 +129,14 @@ def mine_S_Default(
 
     # Return single SchemaInstance with all rules
     # Include roles_mapping so builder can lookup role_ids for pixels
+    # FIX: Convert tuple keys to string representation for JSON serialization
+    roles_mapping_str = {str(k): v for k, v in roles.items()}
+
     schema_instance = SchemaInstance(
         family_id="S_Default",
         params={
             "rules": rules,
-            "roles_mapping": dict(roles)  # Convert to dict for JSON serialization
+            "roles_mapping": roles_mapping_str  # String keys for JSON safety
         }
     )
 

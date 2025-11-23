@@ -501,9 +501,8 @@ def mine_S8(
                     test_tile_pattern[f"({dr},{dc})"] = int(grid_in[dr, dc])
 
             # Use consistent transforms from training examples
-            # Output dimensions will be predicted by dimension predictor
-            # For 3x scale: H_out = 3 * H_in, W_out = 3 * W_in
-            # The transform pattern positions must match the output grid
+            # Output dimensions will be injected by kernel (via predict_dimensions)
+            # We set region to None - builder will use actual grid dimensions
             instances.append(SchemaInstance(
                 family_id="S8",
                 params={
@@ -514,8 +513,8 @@ def mine_S8(
                     "tile_pattern": test_tile_pattern,
                     "tile_transforms": consistent_transforms,  # Use learned pattern
                     "region_origin": "(0,0)",
-                    "region_height": H_in * 3,  # Assume same scale as training
-                    "region_width": W_in * 3
+                    "region_height": None,  # Let builder use actual grid dims
+                    "region_width": None    # (injected by kernel via predict_dimensions)
                 }
             ))
 

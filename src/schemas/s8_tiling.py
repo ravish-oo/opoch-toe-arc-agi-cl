@@ -151,15 +151,13 @@ def build_S8_constraints(
 
     # 2. Get grid dimensions
     # S8 tiles pattern into OUTPUT grid
-    # For test examples, output_H/W may be None - use region_height/width from params
+    # Priority: 1) ex.output_H/W (injected by kernel), 2) input dims (inertia fallback)
     H = ex.output_H
     W = ex.output_W
-    if H is None or W is None:
-        # Fall back to region dimensions from params (required for test examples)
-        H = schema_params.get("region_height")
-        W = schema_params.get("region_width")
-        if H is None or W is None:
-            return  # No dimensions available
+    if H is None:
+        H = ex.input_H  # Fallback to input dimensions (inertia)
+    if W is None:
+        W = ex.input_W  # Fallback to input dimensions (inertia)
     C = task_context.C
 
     # 3. Parse tiling parameters
@@ -176,8 +174,11 @@ def build_S8_constraints(
     except (ValueError, SyntaxError):
         return  # Invalid region origin
 
-    region_h = int(schema_params.get("region_height", H))
-    region_w = int(schema_params.get("region_width", W))
+    # Parse region dimensions - if None/missing, use actual grid dimensions
+    region_h_param = schema_params.get("region_height")
+    region_w_param = schema_params.get("region_width")
+    region_h = int(region_h_param) if region_h_param is not None else H
+    region_w = int(region_w_param) if region_w_param is not None else W
 
     # Parse tile pattern
     raw_pattern = schema_params.get("tile_pattern", {})
