@@ -30,6 +30,7 @@ from src.solver.lp_solver import solve_constraints_for_grid, InfeasibleModelErro
 from src.solver.decoding import y_to_grid
 from src.runners.results import SolveDiagnostics, compute_train_mismatches, compute_grid_mismatches, ExampleSummary
 from src.features.components import connected_components_by_color
+from src.geometry.dimensions import predict_dimensions
 
 
 def solve_arc_task_with_diagnostics(
@@ -169,14 +170,23 @@ def solve_arc_task_with_diagnostics(
             grid_pred = y_to_grid(y, H_out, W_out, num_colors)
             train_outputs_pred.append(grid_pred)
 
+        # 2.5. PHASE 0: Predict output dimensions for test examples
+        # This learns dimension transformation rules from training (Identity, Scale, Additive, Fixed)
+        # and applies them to test inputs BEFORE pixel-level solving
+        predicted_dims = predict_dimensions(ctx)
+
         # 3. Solve for each TEST example (with per-example exception handling)
         for i, ex in enumerate(ctx.test_examples):
             try:
-                # Determine output dimensions
+                # Determine output dimensions using Phase 0 predictions
                 if ex.output_H is not None:
+                    # Test example has known output dims (rare, but possible)
                     H_out, W_out = ex.output_H, ex.output_W
+                elif i < len(predicted_dims):
+                    # Use predicted dimensions from Phase 0
+                    H_out, W_out = predicted_dims[i]
                 else:
-                    # Fallback to input dimensions (works for geometry-preserving schemas)
+                    # Fallback to input dimensions (should not happen)
                     H_out, W_out = ex.input_H, ex.input_W
 
                 num_pixels = H_out * W_out
