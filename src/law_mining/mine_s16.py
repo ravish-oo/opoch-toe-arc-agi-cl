@@ -30,15 +30,18 @@ from src.catalog.types import SchemaInstance
 # 4-connected neighbors (Up, Down, Left, Right)
 NEIGHBORS_4 = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
-# Causality threshold: If >20% of isolated A's turn into C, B is not the cause
-CAUSALITY_THRESHOLD = 0.2
+# =============================================================================
+# TIERED THRESHOLDS: Different standards based on sample size
+# =============================================================================
+# CASE A: High count (>=5 treatment pixels) - allow some noise
+HIGH_COUNT_THRESHOLD = 5
+HIGH_COUNT_CONSISTENCY = 0.85  # 85% consistency
+HIGH_COUNT_BASELINE = 0.20     # 20% baseline
 
-# Consistency threshold: Rule must apply to >=85% of eligible (c_self, c_neigh) pairs
-CONSISTENCY_THRESHOLD = 0.85
-
-# Minimum sample size: Need at least 5 eligible pixels for statistical significance
-# 3-4 pixels can have 100% consistency by pure coincidence
-MIN_SAMPLE_SIZE = 5
+# CASE B: Low count (2-4 treatment pixels) - require pristine evidence
+LOW_COUNT_MIN = 2
+LOW_COUNT_CONSISTENCY = 1.0    # 100% consistency (perfect)
+LOW_COUNT_BASELINE = 0.05      # 5% baseline (highly causal)
 
 
 def get_neighbor_colors(grid: np.ndarray, r: int, c: int) -> Set[int]:
@@ -52,19 +55,32 @@ def get_neighbor_colors(grid: np.ndarray, r: int, c: int) -> Set[int]:
     return neighbors
 
 
-def verify_causality(
+def verify_rule(
     task_context: TaskContext,
     c_self: int,
     c_neigh: int,
     c_out: int
 ) -> bool:
     """
-    Verify that a reaction (c_self, c_neigh) -> c_out is causal, not spurious.
+    Verify a reaction rule using TIERED evidence thresholds.
 
-    Counterfactual Check:
-    - Find all pixels of color c_self WITHOUT c_neigh as neighbor (Control Group)
-    - If >20% of them ALSO became c_out, then c_neigh is irrelevant
-    - The change is global (S2) or spatial (S12), not neighbor-based (S16)
+    This replaces separate verify_consistency() and verify_causality() with
+    a unified approach that counts once and applies tiered logic.
+
+    TIERED EVIDENCE THRESHOLDS:
+
+    CASE A: Strong Evidence (>=5 treatment pixels)
+        - Consistency >= 85% (some noise acceptable)
+        - Baseline <= 20% (if control group exists)
+        - No control group: OK (enough positive evidence)
+
+    CASE B: Rare Event (2-4 treatment pixels) - Small Data Laws
+        - Consistency = 100% (must be pristine)
+        - Baseline <= 5% (highly causal)
+        - No control group: REJECT (can't verify causality with little data)
+
+    CASE C: Insufficient Evidence (<2 treatment pixels)
+        - REJECT (too risky)
 
     Args:
         task_context: TaskContext with training examples
@@ -73,10 +89,13 @@ def verify_causality(
         c_out: Output color
 
     Returns:
-        True if reaction is causal (c_neigh is necessary), False if spurious
+        True if rule passes tiered verification, False otherwise
     """
-    control_total = 0  # c_self pixels WITHOUT c_neigh neighbor
-    control_match = 0  # How many of those turned into c_out anyway
+    # Count both treatment and control groups in one pass
+    treatment_total = 0  # c_self pixels WITH c_neigh neighbor
+    treatment_match = 0  # How many turned into c_out
+    control_total = 0    # c_self pixels WITHOUT c_neigh neighbor
+    control_match = 0    # How many turned into c_out anyway
 
     for ex in task_context.train_examples:
         if ex.output_grid is None:
@@ -92,94 +111,68 @@ def verify_causality(
                     continue
 
                 neighbors = get_neighbor_colors(ex.input_grid, r, c)
+                output_color = int(ex.output_grid[r, c])
 
-                # Control group: c_self pixels WITHOUT c_neigh as neighbor
-                if c_neigh not in neighbors:
+                if c_neigh in neighbors:
+                    # Treatment group: c_self WITH c_neigh neighbor
+                    treatment_total += 1
+                    if output_color == c_out:
+                        treatment_match += 1
+                else:
+                    # Control group: c_self WITHOUT c_neigh neighbor
                     control_total += 1
-                    if int(ex.output_grid[r, c]) == c_out:
+                    if output_color == c_out:
                         control_match += 1
 
-    # Calculate baseline probability: P(c_out | No c_neigh)
-    if control_total == 0:
-        # No control group exists - can't verify causality
-        # Be CONSERVATIVE: reject (let S2 handle global recolors)
-        # If ALL c_self pixels have c_neigh neighbor, we can't distinguish
-        # "A next to B → C" from "All A → C" (global rule)
+    # No treatment pixels at all
+    if treatment_total == 0:
         return False
 
-    p_baseline = control_match / control_total
-
-    # If >20% of isolated c_self's turn into c_out, c_neigh is NOT the cause
-    if p_baseline > CAUSALITY_THRESHOLD:
-        return False  # Spurious - reject
-
-    return True  # Causal - accept
-
-
-def verify_consistency(
-    task_context: TaskContext,
-    c_self: int,
-    c_neigh: int,
-    c_out: int
-) -> bool:
-    """
-    Verify that a reaction (c_self, c_neigh) -> c_out has high consistency.
-
-    Consistency Check (Signal Strength):
-    - Count all pixels of color c_self that have c_neigh as neighbor
-    - Check what fraction of them became c_out
-    - A TRUE chemical reaction should apply to ~100% of eligible pixels
-    - If only 9% of eligible pixels react, it's coincidence, not a law
-
-    Args:
-        task_context: TaskContext with training examples
-        c_self: Self color in the reaction
-        c_neigh: Neighbor color (trigger)
-        c_out: Expected output color
-
-    Returns:
-        True if reaction has high consistency (>=85%), False otherwise
-    """
-    treatment_total = 0  # c_self pixels WITH c_neigh neighbor
-    treatment_match = 0  # How many of those turned into c_out
-
-    for ex in task_context.train_examples:
-        if ex.output_grid is None:
-            continue
-        if ex.input_grid.shape != ex.output_grid.shape:
-            continue
-
-        H, W = ex.input_grid.shape
-
-        for r in range(H):
-            for c in range(W):
-                if int(ex.input_grid[r, c]) != c_self:
-                    continue
-
-                neighbors = get_neighbor_colors(ex.input_grid, r, c)
-
-                # Treatment group: c_self pixels WITH c_neigh as neighbor
-                if c_neigh in neighbors:
-                    treatment_total += 1
-                    if int(ex.output_grid[r, c]) == c_out:
-                        treatment_match += 1
-
-    # Calculate consistency: P(c_out | c_self with c_neigh)
-    if treatment_total == 0:
-        return False  # No eligible pixels
-
-    # THERMODYNAMIC THRESHOLD: Require minimum sample size for statistical significance
-    # 3-4 pixels can have 100% consistency by pure coincidence
-    if treatment_total < MIN_SAMPLE_SIZE:
-        return False  # Insufficient evidence - not statistically significant
-
+    # Calculate metrics
     p_consistency = treatment_match / treatment_total
+    p_baseline = control_match / control_total if control_total > 0 else 0.0
 
-    # Require high consistency (>=85%) for a valid chemical reaction
-    if p_consistency < CONSISTENCY_THRESHOLD:
-        return False  # Weak correlation - not a law
+    # =========================================================================
+    # CASE A: Strong Evidence (>=5 treatment pixels)
+    # With lots of data, some noise is acceptable
+    # =========================================================================
+    if treatment_total >= HIGH_COUNT_THRESHOLD:
+        # Consistency check: >=85%
+        if p_consistency < HIGH_COUNT_CONSISTENCY:
+            return False
 
-    return True  # Strong, consistent reaction
+        # Causality check: baseline <=20% (if control group exists)
+        # With enough positive evidence, we can skip if no control group
+        if control_total > 0 and p_baseline > HIGH_COUNT_BASELINE:
+            return False
+
+        return True
+
+    # =========================================================================
+    # CASE B: Rare Event (2-4 treatment pixels) - Small Data Laws
+    # With little data, rule must be PRISTINE
+    # =========================================================================
+    elif treatment_total >= LOW_COUNT_MIN:
+        # Must be PERFECT (100% consistent)
+        if p_consistency < LOW_COUNT_CONSISTENCY:
+            return False
+
+        # Must have control group to verify causality (can't risk it with small N)
+        if control_total == 0:
+            return False
+
+        # Must be HIGHLY CAUSAL (baseline <=5%)
+        if p_baseline > LOW_COUNT_BASELINE:
+            return False
+
+        return True
+
+    # =========================================================================
+    # CASE C: Insufficient Evidence (<2 treatment pixels)
+    # Too risky even for us
+    # =========================================================================
+    else:
+        return False
 
 
 def mine_S16(
@@ -194,9 +187,10 @@ def mine_S16(
     1. Identify Interfaces: For each pixel, look at 4-neighbors
     2. Mine Reactions: (Self_Color, Neighbor_Color) -> Output_Color
     3. Lattice Law: Same trigger must always produce same output
-    4. DOUBLE FILTER:
-       a. Consistency (Signal Strength): >=85% of eligible pixels must react
-       b. Causality (Exclusivity): <20% of isolated pixels should react
+    4. TIERED VERIFICATION (via verify_rule):
+       - High count (>=5): 85% consistency, 20% baseline
+       - Low count (2-4): 100% consistency, 5% baseline, needs control group
+       - Tiny count (<2): rejected
     5. Emit Schema with reaction_table
 
     Args:
@@ -250,21 +244,12 @@ def mine_S16(
 
         c_out = list(outcomes.keys())[0]
 
-        # DOUBLE FILTER: Both checks must pass
-
-        # 1. CONSISTENCY CHECK (Signal Strength): Rule must apply to most eligible pixels
-        if not verify_consistency(task_context, c_self, c_neigh, c_out):
-            # Weak correlation (e.g., only 9% of eligible pixels react)
-            # Not a law - just coincidence
+        # TIERED VERIFICATION: Different thresholds based on sample size
+        if not verify_rule(task_context, c_self, c_neigh, c_out):
+            # Failed verification (consistency, causality, or sample size)
             continue
 
-        # 2. CAUSALITY CHECK (Exclusivity): Verify neighbor is actually the cause
-        if not verify_causality(task_context, c_self, c_neigh, c_out):
-            # Spurious correlation - neighbor is coincidental, not causal
-            # Let S2 (global recolor) or S12 (spatial) handle it
-            continue
-
-        # Passed BOTH checks - valid reaction
+        # Passed tiered verification - valid reaction
         reaction_table[f"({c_self},{c_neigh})"] = c_out
 
     # Only emit if we found valid reactions
@@ -288,8 +273,8 @@ if __name__ == "__main__":
 
     # Test 1: Real reaction - Blue(1) next to Red(2) becomes Green(3)
     # Blues NOT next to Red stay Blue (causal)
-    # Need >= 5 Blues next to Red for MIN_SAMPLE_SIZE
-    print("\nTest 1: Real reaction - Blue(1) next to Red(2) -> Green(3)")
+    # CASE A: 5 treatment pixels, uses 85% consistency / 20% baseline
+    print("\nTest 1: CASE A - High count reaction (>=5 treatment pixels)")
     print("-" * 70)
 
     in1 = np.array([
@@ -330,20 +315,28 @@ if __name__ == "__main__":
         print("  WARNING: No reactions mined (check sample size)")
 
     # Test 2: Spurious reaction - Global recolor (ALL 7s -> 8)
-    # Should be REJECTED because 7s change even without specific neighbor
+    # Should be REJECTED because 7s change even WITHOUT 0 neighbor
+    # Need 7s WITH 0 neighbor (treatment) AND 7s WITHOUT 0 neighbor (control)
+    # Control group: 7s surrounded by other 7s (rows 4-5 interior)
     print("\nTest 2: Spurious reaction - Global recolor (should REJECT)")
     print("-" * 70)
 
     in2 = np.array([
-        [7, 0, 7],  # 7 with 0 neighbor
-        [0, 7, 0],  # 7 with 0 neighbors
-        [7, 0, 7],  # 7 with 0 neighbor
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 7, 0, 7, 0, 7, 0],  # 3 7s with 0 neighbor (treatment)
+        [0, 0, 0, 0, 0, 0, 0],
+        [7, 7, 7, 7, 7, 7, 7],  # 7 7s with 0 neighbor from row 2 (treatment = 10)
+        [7, 7, 7, 7, 7, 7, 7],  # 7 7s WITHOUT 0 neighbor (control)
+        [7, 7, 7, 7, 7, 7, 7],  # 7 7s WITHOUT 0 neighbor (control = 14)
     ], dtype=int)
 
     out2 = np.array([
-        [8, 0, 8],  # All 7s became 8
-        [0, 8, 0],  # Even isolated 7
-        [8, 0, 8],  # All 7s became 8
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 8, 0, 8, 0, 8, 0],  # 7s with 0 neighbor became 8
+        [0, 0, 0, 0, 0, 0, 0],
+        [8, 8, 8, 8, 8, 8, 8],  # 7s with 0 neighbor became 8
+        [8, 8, 8, 8, 8, 8, 8],  # 7s WITHOUT 0 neighbor ALSO became 8 (baseline = 100%!)
+        [8, 8, 8, 8, 8, 8, 8],  # 7s WITHOUT 0 neighbor ALSO became 8
     ], dtype=int)
 
     ex2 = build_example_context(in2, out2)
@@ -354,12 +347,12 @@ if __name__ == "__main__":
     print(f"  Mined instances: {len(result2)}")
     if result2:
         rt = result2[0].params["reaction_table"]
-        # (7,0) -> 8 should be REJECTED (7s change even without 0 neighbor)
+        # (7,0) -> 8 should be REJECTED (7s change even without 0 neighbor = 100% baseline)
         assert "(7,0)" not in rt, f"Should reject spurious (7,0)->8, got {rt}"
         print(f"  Reaction table: {rt}")
     else:
         print("  Correctly rejected spurious global recolor")
-    print("  Causality check: 7s change even without specific neighbor = NOT causal")
+    print("  Causality check: 7s change even without 0 neighbor (baseline=100%) = NOT causal")
 
     # Test 3: Spreading pattern - Red(1) infects White(0)
     # Only whites ADJACENT to red change (causal)
@@ -442,6 +435,80 @@ if __name__ == "__main__":
         print(f"  Reaction table: {rt}")
     else:
         print("  Correctly rejected inconsistent reactions")
+
+    # Test 6: Small Data Law - CASE B (2-4 treatment pixels with perfect evidence)
+    # 3 Blues next to Red, ALL become Green (100% consistency)
+    # 5 isolated Blues stay Blue (0% baseline = highly causal)
+    print("\nTest 6: CASE B - Small data law (2-4 treatment, pristine evidence)")
+    print("-" * 70)
+
+    in6 = np.array([
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 1, 2, 0, 1, 2, 0],  # 2 Blues next to Red
+        [0, 0, 1, 2, 0, 0, 0],  # 1 Blue next to Red (total: 3 treatment)
+        [0, 0, 0, 0, 0, 0, 0],
+        [1, 0, 1, 0, 1, 0, 1],  # 4 isolated Blues (control group)
+        [1, 0, 0, 0, 0, 0, 0],  # 1 more isolated Blue (total: 5 control)
+    ], dtype=int)
+
+    out6 = np.array([
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 3, 2, 0, 3, 2, 0],  # Blues became Green (100% consistency)
+        [0, 0, 3, 2, 0, 0, 0],  # Blue became Green
+        [0, 0, 0, 0, 0, 0, 0],
+        [1, 0, 1, 0, 1, 0, 1],  # Isolated Blues stayed Blue (0% baseline)
+        [1, 0, 0, 0, 0, 0, 0],  # Isolated Blue stayed Blue
+    ], dtype=int)
+
+    ex6 = build_example_context(in6, out6)
+    ctx6 = TaskContext(train_examples=[ex6], test_examples=[], C=4)
+
+    result6 = mine_S16(ctx6, {}, {})
+
+    print(f"  Mined instances: {len(result6)}")
+    if result6:
+        rt = result6[0].params["reaction_table"]
+        print(f"  Reaction table: {rt}")
+        assert "(1,2)" in rt, f"Should find (1,2)->3 with only 3 treatment pixels, got {rt}"
+        assert rt["(1,2)"] == 3
+        print("  CASE B PASS: Small data law recovered with pristine evidence!")
+        print("  (3 treatment, 100% consistency, 0% baseline)")
+    else:
+        raise AssertionError("CASE B FAIL: Should accept pristine small data law")
+
+    # Test 7: Small Data Law REJECTION - imperfect evidence
+    # 3 Blues next to Red, but 1 isolated Blue also changed (baseline > 5%)
+    print("\nTest 7: CASE B rejection - small data with impure baseline")
+    print("-" * 70)
+
+    in7 = np.array([
+        [0, 0, 0, 0, 0],
+        [0, 1, 2, 0, 0],  # 1 Blue next to Red
+        [0, 0, 0, 0, 0],
+        [0, 2, 1, 0, 0],  # 1 Blue next to Red (total: 2 treatment)
+        [1, 0, 1, 0, 1],  # 3 isolated Blues (control group)
+    ], dtype=int)
+
+    out7 = np.array([
+        [0, 0, 0, 0, 0],
+        [0, 3, 2, 0, 0],  # Blue -> Green (treatment)
+        [0, 0, 0, 0, 0],
+        [0, 2, 3, 0, 0],  # Blue -> Green (treatment)
+        [3, 0, 1, 0, 1],  # 1 isolated Blue ALSO -> Green (baseline = 33%!)
+    ], dtype=int)
+
+    ex7 = build_example_context(in7, out7)
+    ctx7 = TaskContext(train_examples=[ex7], test_examples=[], C=4)
+
+    result7 = mine_S16(ctx7, {}, {})
+
+    print(f"  Mined instances: {len(result7)}")
+    if result7:
+        rt = result7[0].params["reaction_table"]
+        assert "(1,2)" not in rt, f"Should reject due to high baseline, got {rt}"
+        print(f"  Reaction table: {rt}")
+    else:
+        print("  Correctly rejected: baseline 33% > 5% threshold for small data")
 
     print("\n" + "=" * 70)
     print("S16 Miner self-test passed.")
