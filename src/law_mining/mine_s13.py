@@ -54,21 +54,22 @@ def compute_centroid(component: Component) -> Tuple[float, float]:
 def detect_mobile_colors(
     task_context: TaskContext,
     vector: Tuple[int, int],
-    threshold: float = 0.9
+    threshold: float = 0.0  # Relaxed: ANY movement counts
 ) -> Set[int]:
     """
     Empirically detect which colors move in the given vector direction.
 
-    Uses pooled consistency check: A color is mobile if >90% of its components
-    (across ALL training examples) shift in the vector direction.
+    CALIBRATED: A color is mobile if ANY of its components move in the
+    vector direction. This handles "blocked" scenarios like Tetris stacks
+    where only the top block moves while others are stationary.
 
-    This prevents false positives where a minority of components move
-    (e.g., 1 falling object among 50 stationary walls of the same color).
+    The simulator will handle collision detection - if a component can't
+    move because it's blocked, the simulator figures that out.
 
     Args:
         task_context: TaskContext with training examples
         vector: (dr, dc) gravity direction
-        threshold: Minimum consistency ratio (default 0.9 = 90%)
+        threshold: Minimum consistency ratio (default 0.0 = any movement)
 
     Returns:
         Set of mobile color values
@@ -138,11 +139,10 @@ def detect_mobile_colors(
                 if moved:
                     moved_components += 1
 
-        # Compute pooled consistency and check threshold
-        if total_components > 0:
-            consistency = moved_components / total_components
-            if consistency > threshold:
-                mobile_colors.add(color)
+        # CALIBRATED: Accept if ANY component moves in the vector direction
+        # The simulator handles collision detection for blocked components
+        if moved_components > 0:
+            mobile_colors.add(color)
 
     return mobile_colors
 

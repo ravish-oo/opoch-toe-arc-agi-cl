@@ -291,12 +291,13 @@ def is_destructive_fill_enclosed(
     boundary_color: int,
     fill_color: int,
     roles: Dict[Any, int],
-    claimed_roles: Set[int]
+    claimed_roles: Set[int],
+    max_error_rate: float = 0.05  # Allow up to 5% noise
 ) -> bool:
     """
     Check if fill_enclosed would destroy unclaimed Active Information.
 
-    A fill is destructive if it would overwrite pixels that:
+    A fill is destructive if it would overwrite MORE THAN max_error_rate of pixels that:
     1. Are in the fill region (holes)
     2. Don't match fill_color in ground truth
     3. Are NOT claimed by higher-authority schemas (S2/S6/S10)
@@ -307,10 +308,14 @@ def is_destructive_fill_enclosed(
         fill_color: Color that would fill the holes
         roles: Role mapping (kind, ex_idx, r, c) -> role_id
         claimed_roles: Set of role_ids claimed by higher schemas
+        max_error_rate: Maximum allowed error rate (default 5%)
 
     Returns:
-        True if fill would destroy unclaimed data (destructive)
+        True if fill would destroy too many unclaimed pixels (destructive)
     """
+    total_region_pixels = 0
+    unclaimed_mismatch_count = 0
+
     for ex_idx, ex in enumerate(task_context.train_examples):
         if ex.output_grid is None:
             continue
@@ -324,31 +329,40 @@ def is_destructive_fill_enclosed(
         if not np.any(holes_mask):
             continue
 
+        # Count total region pixels
+        total_region_pixels += np.sum(holes_mask)
+
         # Find mismatched pixels: in region AND GT != fill_color
         mismatches = holes_mask & (output_grid != fill_color)
 
-        # Check each mismatched pixel
+        # Count unclaimed mismatched pixels
         for r, c in zip(*np.where(mismatches)):
             role_key = ("train_out", ex_idx, int(r), int(c))
             if role_key in roles:
                 role_id = roles[role_key]
                 if role_id not in claimed_roles:
                     # This pixel is unclaimed and would be overwritten
-                    return True  # Destructive
+                    unclaimed_mismatch_count += 1
 
-    return False  # Safe
+    # Calculate error rate and check threshold
+    if total_region_pixels == 0:
+        return False  # No region to fill
+
+    error_rate = unclaimed_mismatch_count / total_region_pixels
+    return error_rate > max_error_rate  # Destructive if error > 5%
 
 
 def is_destructive_fill_background(
     task_context: TaskContext,
     fill_color: int,
     roles: Dict[Any, int],
-    claimed_roles: Set[int]
+    claimed_roles: Set[int],
+    max_error_rate: float = 0.05  # Allow up to 5% noise
 ) -> bool:
     """
     Check if fill_background would destroy unclaimed Active Information.
 
-    A fill is destructive if it would overwrite pixels that:
+    A fill is destructive if it would overwrite MORE THAN max_error_rate of pixels that:
     1. Are in the background region
     2. Don't match fill_color in ground truth
     3. Are NOT claimed by higher-authority schemas (S2/S6/S10)
@@ -358,10 +372,14 @@ def is_destructive_fill_background(
         fill_color: Color that would fill the background
         roles: Role mapping (kind, ex_idx, r, c) -> role_id
         claimed_roles: Set of role_ids claimed by higher schemas
+        max_error_rate: Maximum allowed error rate (default 5%)
 
     Returns:
-        True if fill would destroy unclaimed data (destructive)
+        True if fill would destroy too many unclaimed pixels (destructive)
     """
+    total_region_pixels = 0
+    unclaimed_mismatch_count = 0
+
     for ex_idx, ex in enumerate(task_context.train_examples):
         if ex.output_grid is None:
             continue
@@ -375,19 +393,27 @@ def is_destructive_fill_background(
         if not np.any(background_mask):
             continue
 
+        # Count total region pixels
+        total_region_pixels += np.sum(background_mask)
+
         # Find mismatched pixels: in region AND GT != fill_color
         mismatches = background_mask & (output_grid != fill_color)
 
-        # Check each mismatched pixel
+        # Count unclaimed mismatched pixels
         for r, c in zip(*np.where(mismatches)):
             role_key = ("train_out", ex_idx, int(r), int(c))
             if role_key in roles:
                 role_id = roles[role_key]
                 if role_id not in claimed_roles:
                     # This pixel is unclaimed and would be overwritten
-                    return True  # Destructive
+                    unclaimed_mismatch_count += 1
 
-    return False  # Safe
+    # Calculate error rate and check threshold
+    if total_region_pixels == 0:
+        return False  # No region to fill
+
+    error_rate = unclaimed_mismatch_count / total_region_pixels
+    return error_rate > max_error_rate  # Destructive if error > 5%
 
 
 def mine_S14(
