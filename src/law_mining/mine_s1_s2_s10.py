@@ -60,6 +60,9 @@ def mine_S2(
       2. Aggregate across all train examples:
          - Track all output colors seen for each (input_color, size)
       3. Keep only classes with exactly one consistent output color
+      3.1. UNIFICATION CHECK: For each input_color, if ALL sizes map to
+           the SAME output_color, add "else" clause for generalization.
+           This prevents overfitting to specific sizes seen in training.
       4. Collect claimed roles (pixels explained by S2)
       5. Generate SchemaInstance for each (train + test) example
 
@@ -143,6 +146,17 @@ def mine_S2(
 
     for (input_color, size), output_color in consistent_mappings.items():
         color_to_size_map[input_color][str(size)] = output_color
+
+    # Step 3.1: Unification Check - Detect size-invariant rules
+    # If ALL sizes for an input_color map to the SAME output_color,
+    # add "else" clause to generalize to unseen sizes (e.g., test examples)
+    for input_color, size_map in color_to_size_map.items():
+        output_colors_for_color = set(size_map.values())
+        if len(output_colors_for_color) == 1:
+            # All sizes map to same output color - size is irrelevant
+            # Add "else" to handle any unseen size (generalization!)
+            unified_color = list(output_colors_for_color)[0]
+            size_map["else"] = unified_color
 
     # Step 3.5: Collect claimed roles (pixels explained by S2)
     # S2 claims all pixels in components that match consistent_mappings
@@ -373,14 +387,20 @@ if __name__ == "__main__":
         print(f"  Total tie pairs: {total_pairs}")
 
     print("\nMining S2 instances...")
-    s2_instances = mine_S2(task_context, roles, role_stats)
+    s2_instances, s2_claimed = mine_S2(task_context, roles, role_stats)
     print(f"✓ S2 instances: {len(s2_instances)}")
+    print(f"  Claimed roles: {len(s2_claimed)}")
     if s2_instances:
         print(f"  Sample S2 params: {s2_instances[0].params}")
+        # Check for "else" clause (Unification Check)
+        size_to_color = s2_instances[0].params.get("size_to_color", {})
+        if "else" in size_to_color:
+            print(f"  ✓ Unification Check: 'else' clause added for generalization")
 
     print("\nMining S10 instances...")
-    s10_instances = mine_S10(task_context, roles, role_stats)
+    s10_instances, s10_claimed = mine_S10(task_context, roles, role_stats)
     print(f"✓ S10 instances: {len(s10_instances)}")
+    print(f"  Claimed roles: {len(s10_claimed)}")
     if s10_instances:
         print(f"  Sample S10 params: {s10_instances[0].params}")
 
