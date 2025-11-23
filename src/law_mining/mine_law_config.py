@@ -42,6 +42,7 @@ from src.law_mining.mine_s12 import mine_S12
 from src.law_mining.mine_s13 import mine_S13
 from src.law_mining.mine_s14 import mine_S14
 from src.law_mining.mine_s16 import mine_S16
+from src.law_mining.mine_s18 import mine_S18
 from src.law_mining.mine_s_default import mine_S_Default
 from src.diagnostics.profiler import profile_task
 
@@ -118,6 +119,9 @@ def mine_law_config(task_context: TaskContext) -> TaskLawConfig:
 
     schema_instances.extend(mine_S7(task_context, roles, role_stats))
     schema_instances.extend(mine_S11(task_context, roles, role_stats))
+
+    # S18: Symmetry / D4 group transforms (Light Miner - fast)
+    schema_instances.extend(mine_S18(task_context, roles, role_stats))
 
     # =========================================================================
     # LAZY EVALUATION GATE + PHYSICS PROFILER: Gate Heavy Miners
