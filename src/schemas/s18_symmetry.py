@@ -352,11 +352,22 @@ def _build_local_symmetry(
 
     # Check for axis_rule (most abstract - dynamic uniform detection)
     axis_rule = schema_params.get("axis_rule")
-    axis_type = schema_params.get("axis_type")  # "row" or "col"
+    axis_type = schema_params.get("axis_type")  # "row" or "col" (for single-axis)
 
     # STRATEGY 1: Dynamic Uniform (find ANY uniform line at runtime)
     if axis_rule == "dynamic_uniform":
-        if axis_type == "col":
+        # For QUADRANT: Find BOTH row and col axes dynamically
+        if split_type == "quadrant":
+            resolved_row = find_uniform_axis(input_grid, "row", bg_color)
+            resolved_col = find_uniform_axis(input_grid, "col", bg_color)
+            if resolved_row is not None and resolved_col is not None:
+                axis_row = resolved_row
+                axis_col = resolved_col
+            else:
+                # Need BOTH axes for quadrant - can't build constraints
+                return
+        # For SINGLE-AXIS: Use axis_type to determine which axis to find
+        elif axis_type == "col":
             resolved_col = find_uniform_axis(input_grid, "col", bg_color)
             if resolved_col is not None:
                 axis_col = resolved_col
@@ -404,8 +415,23 @@ def _build_local_symmetry(
 
     C = task_context.C
 
+    # Handle dynamic source detection for quadrant symmetry
+    # When source == "dynamic", auto-detect which quadrant has content
+    resolved_source = source
+    if source == "dynamic" and split_type == "quadrant":
+        # Find quadrant with most non-bg content
+        quadrants = ["top_left", "top_right", "bottom_left", "bottom_right"]
+        max_content = -1
+        for q in quadrants:
+            q_pixels = get_source_pixels(input_grid, bg_color, axis_row, axis_col, q)
+            if len(q_pixels) > max_content:
+                max_content = len(q_pixels)
+                resolved_source = q
+        if max_content == 0:
+            return  # No content in any quadrant
+
     # Get source pixels
-    source_pixels = get_source_pixels(input_grid, bg_color, axis_row, axis_col, source)
+    source_pixels = get_source_pixels(input_grid, bg_color, axis_row, axis_col, resolved_source)
 
     # For quadrant mode, we need to emit preferences for all three target quadrants
     if split_type == "quadrant" and transform == "quadrant":

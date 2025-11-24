@@ -549,6 +549,24 @@ def mine_local_symmetry(task_context: TaskContext) -> Optional[Dict[str, any]]:
             common_col_colors = common_col_colors.intersection(colors)
 
     # =========================================================================
+    # CRITICAL: Try QUADRANT first (most complete theory)
+    # A quadrant task CONTAINS valid single-axis reflections as subsets.
+    # If we check single-axis first, we greedily match partial truths.
+    # =========================================================================
+    for row_axis_color in sorted(common_row_colors):
+        if row_axis_color == bg_color:
+            continue
+        for col_axis_color in sorted(common_col_colors):
+            if col_axis_color == bg_color:
+                continue
+
+            params = try_axis_symmetry_by_color(
+                task_context, row_axis_color, col_axis_color, "quadrant", bg_color
+            )
+            if params:
+                return params
+
+    # =========================================================================
     # Try vertical splits with semantic axis (by color)
     # =========================================================================
     for axis_color in sorted(common_col_colors):
@@ -575,32 +593,23 @@ def mine_local_symmetry(task_context: TaskContext) -> Optional[Dict[str, any]]:
             return params
 
     # =========================================================================
-    # Try quadrant splits with semantic axes (by color)
-    # =========================================================================
-    for row_axis_color in sorted(common_row_colors):
-        if row_axis_color == bg_color:
-            continue
-        for col_axis_color in sorted(common_col_colors):
-            if col_axis_color == bg_color:
-                continue
-
-            params = try_axis_symmetry_by_color(
-                task_context, row_axis_color, col_axis_color, "quadrant", bg_color
-            )
-            if params:
-                return params
-
-    # =========================================================================
     # DYNAMIC UNIFORM: Axis color varies between examples, but each has a uniform line
     # This is the most abstract level - "reflect across THE divider" (whatever color)
     # =========================================================================
 
-    # Try vertical splits with dynamic uniform axis
+    # CRITICAL: Try QUADRANT first (most complete theory)
+    # A quadrant task CONTAINS valid single-axis reflections as subsets.
+    # If we check single-axis first, we greedily match partial truths.
+    params = try_axis_symmetry_dynamic_quadrant(task_context, bg_color)
+    if params:
+        return params
+
+    # Try vertical splits with dynamic uniform axis (single axis)
     params = try_axis_symmetry_dynamic_uniform(task_context, "col", "vertical", bg_color)
     if params:
         return params
 
-    # Try horizontal splits with dynamic uniform axis
+    # Try horizontal splits with dynamic uniform axis (single axis)
     params = try_axis_symmetry_dynamic_uniform(task_context, "row", "horizontal", bg_color)
     if params:
         return params
@@ -836,6 +845,89 @@ def try_axis_symmetry_dynamic_uniform(
             "axis_type": axis_type,  # "row" or "col" - which direction to search
             "source": consistent_source,
             "transform": consistent_transform,
+            "bg_color": bg_color
+        }
+
+    return None
+
+
+def try_axis_symmetry_dynamic_quadrant(
+    task_context: TaskContext,
+    bg_color: int
+) -> Optional[Dict[str, any]]:
+    """
+    Validate QUADRANT symmetry using DYNAMIC UNIFORM axes (both row and col).
+
+    This handles "Cross" patterns where BOTH a horizontal AND vertical axis
+    divide the grid into 4 quadrants, and one quadrant reflects to all others.
+
+    Algorithm:
+    1. For each example, find uniform row AND uniform col dynamically
+    2. Define 4 quadrants (TL, TR, BL, BR) excluding axes
+    3. Find source quadrant (max non-bg content)
+    4. Validate all 3 reflections: flip_x, flip_y, flip_both
+    5. Check consistency across all examples
+
+    Args:
+        task_context: TaskContext with training examples
+        bg_color: Background color
+
+    Returns:
+        Dict with params including axis_rule="dynamic_uniform", split_type="quadrant"
+    """
+    consistent_source = None
+
+    for ex in task_context.train_examples:
+        if ex.output_grid is None:
+            continue
+
+        # Find BOTH uniform axes dynamically for THIS example
+        axis_row = find_uniform_axis(ex.input_grid, "row", bg_color)
+        axis_col = find_uniform_axis(ex.input_grid, "col", bg_color)
+
+        # Must have BOTH axes for quadrant symmetry
+        if axis_row is None or axis_col is None:
+            return None
+
+        # Identify source quadrant (quadrant with most non-bg content in input)
+        quadrants = ["top_left", "top_right", "bottom_left", "bottom_right"]
+        max_content = -1
+        source_quadrant = None
+
+        for quadrant in quadrants:
+            pixels = get_source_pixels(ex.input_grid, bg_color, axis_row, axis_col, quadrant)
+            if len(pixels) > max_content:
+                max_content = len(pixels)
+                source_quadrant = quadrant
+
+        if source_quadrant is None or max_content == 0:
+            return None  # No content found
+
+        # Validate all 3 reflections from source to targets
+        # flip_x: horizontal reflection
+        # flip_y: vertical reflection
+        # flip_both: diagonal reflection (both axes)
+        for transform in ["flip_x", "flip_y", "flip_both"]:
+            if not validate_axis_reflection(
+                ex.input_grid, ex.output_grid, bg_color,
+                axis_row, axis_col, source_quadrant, transform
+            ):
+                return None
+
+        # NOTE: Source quadrant can vary between examples (content in different corners)
+        # The key invariant is: BOTH axes exist + all 3 reflections validate
+        # Source is determined per-example at runtime by the builder
+        if consistent_source is None:
+            consistent_source = source_quadrant
+        # Don't require consistency - source can vary between examples!
+
+    if consistent_source:
+        return {
+            "mode": "local",
+            "split_type": "quadrant",
+            "axis_rule": "dynamic_uniform",  # Both axes found dynamically
+            "source": "dynamic",  # Source determined per-example at runtime
+            "transform": "quadrant",  # Apply all 3 reflections
             "bg_color": bg_color
         }
 
@@ -1107,6 +1199,68 @@ if __name__ == "__main__":
     else:
         print("  FAILED: No instances mined")
         assert False, "Expected to mine dynamic uniform symmetry"
+
+    # Test 7: DYNAMIC QUADRANT (Cross pattern - axis COLORS VARY between examples)
+    print("\nTest 7: Dynamic quadrant (Cross pattern - axis colors VARY)")
+    print("-" * 70)
+
+    # Example 1: Cross with color 5 axes
+    input7a = np.array([
+        [1, 2, 5, 0, 0],
+        [3, 4, 5, 0, 0],
+        [5, 5, 5, 5, 5],  # Horizontal axis (color 5)
+        [0, 0, 5, 0, 0],
+        [0, 0, 5, 0, 0]
+    ], dtype=int)
+    output7a = np.array([
+        [1, 2, 5, 2, 1],
+        [3, 4, 5, 4, 3],
+        [5, 5, 5, 5, 5],
+        [3, 4, 5, 4, 3],
+        [1, 2, 5, 2, 1]
+    ], dtype=int)
+
+    # Example 2: Cross with color 7 axes (DIFFERENT color, forces dynamic_uniform)
+    input7b = np.array([
+        [1, 2, 7, 0, 0],
+        [3, 4, 7, 0, 0],
+        [7, 7, 7, 7, 7],  # Horizontal axis (color 7)
+        [0, 0, 7, 0, 0],
+        [0, 0, 7, 0, 0]
+    ], dtype=int)
+    output7b = np.array([
+        [1, 2, 7, 2, 1],
+        [3, 4, 7, 4, 3],
+        [7, 7, 7, 7, 7],
+        [3, 4, 7, 4, 3],
+        [1, 2, 7, 2, 1]
+    ], dtype=int)
+
+    ex7a = build_example_context(input7a, output7a)
+    ex7b = build_example_context(input7b, output7b)
+    ctx7 = TaskContext(train_examples=[ex7a, ex7b], test_examples=[], C=10)
+
+    instances7 = mine_S18(ctx7, {}, {})
+    print(f"  Mined: {len(instances7)} instance(s)")
+    if instances7:
+        params = instances7[0].params
+        print(f"  Mode: {params.get('mode')}")
+        print(f"  Split type: {params.get('split_type')}")
+        print(f"  Source: {params.get('source')}")
+        print(f"  Transform: {params.get('transform')}")
+        print(f"  axis_rule: {params.get('axis_rule')}")
+
+        # KEY: Should detect quadrant with dynamic_uniform (colors vary)
+        assert params.get("split_type") == "quadrant", \
+            f"Expected split_type='quadrant', got {params.get('split_type')}"
+        assert params.get("axis_rule") == "dynamic_uniform", \
+            f"Expected axis_rule='dynamic_uniform', got {params.get('axis_rule')}"
+        assert params.get("transform") == "quadrant", \
+            f"Expected transform='quadrant', got {params.get('transform')}"
+        print("  OK: Correctly detected DYNAMIC QUADRANT (cross pattern, varying colors)")
+    else:
+        print("  FAILED: No instances mined")
+        assert False, "Expected to mine dynamic quadrant symmetry"
 
     print("\n" + "=" * 70)
     print("S18 miner self-test passed.")
