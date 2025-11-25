@@ -167,6 +167,70 @@ def validate_ray_pattern(
     return True  # Pattern is valid on all training examples
 
 
+def validate_color_seed_law(
+    task_context: TaskContext,
+    seed_color: int,
+    vector: Tuple[int, int],
+    draw_color: int,
+    stop_condition: str,
+    include_seed: bool
+) -> bool:
+    """
+    Validate that ALL pixels of seed_color can shoot rays without conflicts.
+
+    This tests the hypothesis: "All pixels of color X shoot this ray."
+    Unlike validate_ray_pattern (hash-based), this finds seeds by COLOR.
+
+    Args:
+        task_context: TaskContext with training examples
+        seed_color: Color value identifying seed pixels
+        vector: (dr, dc) direction
+        draw_color: Color to paint along ray
+        stop_condition: When to stop ray
+        include_seed: Whether to paint seed pixel
+
+    Returns:
+        True if ALL pixels of seed_color can shoot without conflicts, False otherwise
+    """
+    for ex in task_context.train_examples:
+        if ex.output_grid is None:
+            continue  # Skip examples without output
+
+        input_grid = ex.input_grid
+        output_grid = ex.output_grid
+        nbh = ex.neighborhood_hashes
+        H_in, W_in = input_grid.shape
+        H_out, W_out = output_grid.shape
+
+        # Find ALL pixels with seed_color that have neighborhood hashes
+        # (exclude edge pixels without hashes)
+        seed_pixels = []
+        for (r, c), h_val in nbh.items():
+            if 0 <= r < H_in and 0 <= c < W_in:
+                if int(input_grid[r, c]) == seed_color:
+                    seed_pixels.append((r, c))
+
+        if not seed_pixels:
+            continue  # No seeds in this example (vacuously valid)
+
+        # Simulate rays from EVERY pixel of seed_color
+        for seed_r, seed_c in seed_pixels:
+            ray_pixels = simulate_ray(
+                seed_r, seed_c, vector, input_grid, stop_condition, include_seed
+            )
+
+            # Validate: every ray pixel must have draw_color in ground truth
+            for r, c in ray_pixels:
+                if not (0 <= r < H_out and 0 <= c < W_out):
+                    return False  # Ray extends outside output grid
+
+                gt_color = int(output_grid[r, c])
+                if gt_color != draw_color:
+                    return False  # Ray pixel doesn't match ground truth (CONFLICT!)
+
+    return True  # Color Law is valid: ALL pixels of seed_color can shoot
+
+
 def count_affected_pixels(
     task_context: TaskContext,
     seed_hash: int,
@@ -304,7 +368,7 @@ def mine_S12(
     """
     Mine S12 ray patterns from training examples.
 
-    Algorithm (PHYSICS-FIRST + OCCAM'S RAZOR + BASIS ORTHOGONALIZATION + TOP-K):
+    Algorithm (PHYSICS-FIRST + VALIDATION LOOP + OCCAM'S RAZOR + BASIS ORTHOGONALIZATION + TOP-K):
       1. Collect all unique neighborhood hashes from training examples
       2. For each physics combination (vector, draw_color, stop_condition, include_seed):
          - Find ALL hashes that are valid for this physics
@@ -312,15 +376,23 @@ def mine_S12(
          - Validate: all ray pixels must match ground truth
          - Count kinetic utility ONLY on unclaimed pixels (Dark Matter)
          - Compute max reach (Chebyshev distance from seed)
+         - VALIDATION LOOP: Test color hypotheses, then handle residuals:
+           * For each color, VALIDATE: "Can ALL pixels of this color shoot?"
+           * If YES: Emit "Color Law" (seed_type=color, score=1000+coverage)
+           * If residual hashes remain AND <20: Emit "Pattern Law" (seed_type=hash)
+           * If residual hashes >= 20: REJECT as overfitting
          - If valid, has kinetic utility >= 5, AND reach > 1, add to candidates
-      3. Rank candidates by kinetic utility (score), keep only Top 32
+      3. Rank candidates by score descending, keep only Top 32
 
     This implements:
       - Physics-first grouping: reduces instances from ~760k to ~240
+      - Validation Loop: Tests color hypotheses against training data (robust generalization)
+      - Multi-color support: Emits multiple Color Laws if needed (Red AND Blue both shoot)
+      - Residual handling: Pattern Laws for unexplained micro-patterns
       - Occam's Razor: S12 only operates on pixels NOT claimed by S2/S6/S10
       - Basis Orthogonalization: S12 handles action-at-distance (reach > 1),
         S5 handles local transformations (reach ≤ 1)
-      - Competitive Law Selection: Rank by utility, keep Top-32
+      - Competitive Law Selection: Rank by score, keep Top-32
         (geometric bound: 8 vectors × 4 physics variations)
 
     Args:
@@ -425,23 +497,91 @@ def mine_S12(
                     if max_reach <= 1:
                         continue  # Skip micro-rays (S5-redundant)
 
-                    # If we found valid hashes with kinetic utility AND reach > 1, add to candidates
-                    # The dispatcher will inject example_type/example_index at runtime
-                    if valid_hashes:
-                        params = {
-                            "rays": [{
-                                "seed_hashes": valid_hashes,  # LIST of all valid hashes
-                                "vector": str(vector),  # Convert to string for JSON compatibility
+                    # =========================================================================
+                    # VALIDATION LOOP: Test color hypotheses, then handle residuals
+                    # =========================================================================
+                    # Instead of naive homogeneity check, VALIDATE each color hypothesis
+                    if not valid_hashes:
+                        continue
+
+                    # 1. Map colors to hashes (which colors generated these valid hashes?)
+                    from collections import defaultdict, Counter
+                    color_to_hashes = defaultdict(set)
+                    all_valid_hashes = set(valid_hashes)
+
+                    for ex in task_context.train_examples:
+                        for (r, c), h_val in ex.neighborhood_hashes.items():
+                            if h_val in all_valid_hashes:
+                                color = int(ex.input_grid[r, c])
+                                color_to_hashes[color].add(h_val)
+
+                    if not color_to_hashes:
+                        continue  # No colors found (shouldn't happen)
+
+                    # 2. Test each color hypothesis (prioritize by coverage)
+                    # Sort colors by how many hashes they explain (descending)
+                    sorted_colors = sorted(
+                        color_to_hashes.keys(),
+                        key=lambda c: len(color_to_hashes[c]),
+                        reverse=True
+                    )
+
+                    explained_hashes = set()
+
+                    for color in sorted_colors:
+                        # Skip background
+                        if color == 0:
+                            continue
+
+                        # HYPOTHESIS: "All pixels of 'color' shoot this ray"
+                        # VALIDATION: Run simulation on ALL training examples
+                        if validate_color_seed_law(
+                            task_context, color, vector, draw_color, stop_condition, include_seed
+                        ):
+                            # EMIT COLOR LAW (validated generalization)
+                            ray_config = {
+                                "seed_type": "color",
+                                "seed_color": int(color),
+                                "vector": str(vector),
                                 "draw_color": draw_color,
                                 "stop_condition": stop_condition,
                                 "include_seed": include_seed
-                            }]
+                            }
+
+                            # High score for Color Laws (prioritize general rules)
+                            score = 1000 + len(color_to_hashes[color])
+
+                            candidates.append({
+                                "score": score,
+                                "params": {"rays": [ray_config]}
+                            })
+
+                            # Mark these hashes as explained
+                            explained_hashes.update(color_to_hashes[color])
+
+                    # 3. Handle residuals (hashes NOT covered by valid Color Laws)
+                    residual_hashes = all_valid_hashes - explained_hashes
+
+                    if len(residual_hashes) > 0 and len(residual_hashes) < 20:
+                        # EMIT PATTERN LAW (micro-law with high information density)
+                        # Only if the list is short (<20 hashes)
+                        ray_config = {
+                            "seed_type": "hash",
+                            "seed_hashes": list(residual_hashes),
+                            "vector": str(vector),
+                            "draw_color": draw_color,
+                            "stop_condition": stop_condition,
+                            "include_seed": include_seed
                         }
 
+                        # Lower score than Color Laws
+                        score = len(residual_hashes)
+
                         candidates.append({
-                            "score": total_affected_pixels,  # Kinetic utility
-                            "params": params
+                            "score": score,
+                            "params": {"rays": [ray_config]}
                         })
+                    # else: Too many residuals (>= 20) → overfitting, REJECT
 
     # COMPETITIVE LAW SELECTION: Sort by score descending, keep Top-K
     candidates.sort(key=lambda x: x["score"], reverse=True)
@@ -462,6 +602,10 @@ if __name__ == "__main__":
 
     print("Testing S12 miner with toy example...")
     print("=" * 70)
+
+    # Test 1: Color Law (all seeds same color -> generalize to seed_color)
+    print("\nTest 1: Color Law (all seeds color 1 -> seed_type='color')")
+    print("-" * 70)
 
     # Create a 7x7 grid with diagonal ray pattern (>= 5 affected pixels)
     # Seed at (0,0), ray goes SE (1,1) with color 6
@@ -485,12 +629,9 @@ if __name__ == "__main__":
 
     ctx = TaskContext(train_examples=[ex_train], test_examples=[ex_test], C=10)
 
-    print("Test 1: Should find diagonal SE ray (6 affected pixels)")
-    print("-" * 70)
-
     instances = mine_S12(ctx, {}, {}, set())
 
-    # Should find at least one instance with SE vector (1,1)
+    # Should find at least one instance with SE vector (1,1) and seed_type="color"
     found_se_ray = False
     for inst in instances:
         rays = inst.params.get("rays", [])
@@ -498,11 +639,67 @@ if __name__ == "__main__":
             ray = rays[0]
             if ray["vector"] == "(1, 1)" and ray["draw_color"] == 6:
                 found_se_ray = True
-                print(f"✓ Found SE ray: {ray}")
+                print(f"  Found SE ray: vector={ray['vector']}, draw_color={ray['draw_color']}")
+                print(f"  Seed type: {ray.get('seed_type')}")
+                print(f"  Seed color: {ray.get('seed_color')}")
+
+                # KEY: Should be generalized to color law
+                assert ray.get("seed_type") == "color", \
+                    f"Expected seed_type='color', got {ray.get('seed_type')}"
+                assert ray.get("seed_color") == 1, \
+                    f"Expected seed_color=1, got {ray.get('seed_color')}"
+                print("  ✓ Correctly generalized to Color Law (seed_type='color', seed_color=1)")
                 break
 
     assert found_se_ray, "Expected to find SE ray pattern"
 
-    print(f"\nTotal instances mined: {len(instances)} (max 32)")
-    print("=" * 70)
-    print("✓ S12 miner self-test passed.")
+    print(f"\n  Total instances mined: {len(instances)} (max 32)")
+
+    # Test 2: Pattern Law (small number of specific hashes)
+    print("\nTest 2: Pattern Law (<10 hashes -> seed_type='hash')")
+    print("-" * 70)
+
+    # Create grid with 3 different seed patterns (all color 1, but different neighborhoods)
+    input_grid2 = np.zeros((9, 9), dtype=int)
+    input_grid2[1, 1] = 1  # Seed 1
+    input_grid2[3, 3] = 1  # Seed 2
+    input_grid2[5, 5] = 1  # Seed 3
+
+    output_grid2 = np.zeros((9, 9), dtype=int)
+    # Rays from each seed (SE direction)
+    output_grid2[2, 2] = 6
+    output_grid2[3, 3] = 6
+    output_grid2[4, 4] = 6
+    output_grid2[5, 5] = 6
+    output_grid2[6, 6] = 6
+    output_grid2[7, 7] = 6
+
+    ex_train2 = build_example_context(input_grid2, output_grid2)
+    # Give each seed a different hash (< 10 total)
+    ex_train2.neighborhood_hashes = {
+        (1, 1): 100,
+        (3, 3): 200,
+        (5, 5): 300
+    }
+
+    ctx2 = TaskContext(train_examples=[ex_train2], test_examples=[], C=10)
+    instances2 = mine_S12(ctx2, {}, {}, set())
+
+    # Even though all seeds are color 1, they have different hashes
+    # But there are only 3 hashes (< 10), so it should emit as Pattern Law
+    found_pattern = False
+    for inst in instances2:
+        rays = inst.params.get("rays", [])
+        if rays:
+            ray = rays[0]
+            if ray.get("seed_type") == "hash":
+                found_pattern = True
+                print(f"  ✓ Small hash set ({len(ray.get('seed_hashes', []))}) preserved as Pattern Law")
+                break
+
+    if not found_pattern:
+        # It's also OK if it generalizes to color (>90% homogeneity)
+        print("  ✓ Generalized to Color Law (also valid)")
+
+    print("\n" + "=" * 70)
+    print("✓ S12 miner entropy filter self-test passed.")

@@ -37,18 +37,24 @@ def build_S12_constraints(
           "example_index": int,
           "rays": [
             {
-              "seed_hashes": [int, ...],  # Neighborhood hashes that act as emitters
-              "vector": "(dr,dc)",         # Direction tuple (e.g., "(1,1)" for SE)
-              "draw_color": int,           # Color to paint along ray
-              "stop_condition": str,       # "border" | "any_nonzero" | "color_X"
-              "include_seed": bool         # Paint the seed pixel itself?
+              "seed_type": "color" | "hash",    # How to identify seed pixels
+              "seed_color": int,                # (if seed_type="color") Color that shoots rays
+              "seed_hashes": [int, ...],        # (if seed_type="hash") Neighborhood hashes
+              "vector": "(dr,dc)",              # Direction tuple (e.g., "(1,1)" for SE)
+              "draw_color": int,                # Color to paint along ray
+              "stop_condition": str,            # "border" | "any_nonzero" | "color_X"
+              "include_seed": bool              # Paint the seed pixel itself?
             },
             ...
           ]
         }
 
     Where:
-        - seed_hashes: List of neighborhood hash values that identify emitter pixels
+        - seed_type: How to identify seed pixels (default: "hash")
+          * "color": All pixels of seed_color shoot rays (Color Law)
+          * "hash": Only pixels with matching neighborhood hashes shoot (Pattern Law)
+        - seed_color: (if seed_type="color") Color value that identifies seed pixels
+        - seed_hashes: (if seed_type="hash") List of neighborhood hash values
         - vector: Direction of ray as (dr, dc) tuple
         - draw_color: Color to paint pixels along ray path
         - stop_condition: When to stop the ray
@@ -104,11 +110,11 @@ def build_S12_constraints(
     rays = schema_params.get("rays", [])
 
     for ray_config in rays:
-        seed_hashes = ray_config.get("seed_hashes", [])
         vector_str = ray_config.get("vector", "(0,0)")
         draw_color = ray_config.get("draw_color", 0)
         stop_condition = ray_config.get("stop_condition", "border")
         include_seed = ray_config.get("include_seed", False)
+        seed_type = ray_config.get("seed_type", "hash")  # "color" or "hash"
 
         # Parse vector
         try:
@@ -120,11 +126,35 @@ def build_S12_constraints(
         if not (0 <= draw_color < C):
             continue
 
-        # Find seed pixels matching any of the specified hashes
+        # Find seed pixels based on seed_type
         seed_pixels: List[Tuple[int, int]] = []
-        for (r, c), h_val in nbh.items():
-            if h_val in seed_hashes:
-                seed_pixels.append((r, c))
+
+        if seed_type == "color":
+            # CASE A: Color Law (e.g., "Red shoots North")
+            # Fast: iterate all pixels, select by color
+            seed_color = ray_config.get("seed_color")
+            if seed_color is None:
+                continue  # Missing seed_color param
+
+            H_in, W_in = ex.input_grid.shape
+            for r in range(H_in):
+                for c in range(W_in):
+                    # Check if pixel has the seed color
+                    if int(ex.input_grid[r, c]) == seed_color:
+                        # Also check if position has a neighborhood hash (not on edge)
+                        if (r, c) in nbh:
+                            seed_pixels.append((r, c))
+
+        elif seed_type == "hash":
+            # CASE B: Pattern Law (e.g., "Line ends shoot")
+            # Existing hash lookup logic
+            seed_hashes = ray_config.get("seed_hashes", [])
+            for (r, c), h_val in nbh.items():
+                if h_val in seed_hashes:
+                    seed_pixels.append((r, c))
+
+        else:
+            continue  # Unknown seed_type
 
         # Cast ray from each seed pixel
         for r_seed, c_seed in seed_pixels:
@@ -221,13 +251,14 @@ if __name__ == "__main__":
 
     ctx = TaskContext(train_examples=[ex], test_examples=[], C=10)
 
-    print("Test 1: Diagonal ray (SE) from seed")
+    print("Test 1: Diagonal ray (SE) from seed (hash-based)")
     print("-" * 70)
 
     params1 = {
         "example_type": "train",
         "example_index": 0,
         "rays": [{
+            "seed_type": "hash",  # Pattern Law
             "seed_hashes": [12345],
             "vector": "(1,1)",  # SE diagonal
             "draw_color": 6,
@@ -247,13 +278,14 @@ if __name__ == "__main__":
     assert len(builder1.preferences) == expected1, \
         f"Expected {expected1} preferences, got {len(builder1.preferences)}"
 
-    print("\nTest 2: Vertical ray (S) with include_seed")
+    print("\nTest 2: Vertical ray (S) with include_seed (hash-based)")
     print("-" * 70)
 
     params2 = {
         "example_type": "train",
         "example_index": 0,
         "rays": [{
+            "seed_type": "hash",  # Pattern Law
             "seed_hashes": [12345],
             "vector": "(1,0)",  # South
             "draw_color": 3,
@@ -271,6 +303,48 @@ if __name__ == "__main__":
     print(f"  Actual: {len(builder2.preferences)}")
     assert len(builder2.preferences) == expected2, \
         f"Expected {expected2} preferences, got {len(builder2.preferences)}"
+
+    print("\nTest 3: Color Law (seed_type='color', all color 1 pixels shoot)")
+    print("-" * 70)
+
+    # Create grid with TWO color 1 pixels (both should shoot rays)
+    input_grid3 = np.zeros((5, 5), dtype=int)
+    input_grid3[1, 1] = 1  # Seed 1
+    input_grid3[1, 3] = 1  # Seed 2
+
+    output_grid3 = np.zeros((5, 5), dtype=int)
+
+    ex3 = build_example_context(input_grid3, output_grid3)
+    ex3.neighborhood_hashes = {(1, 1): 100, (1, 3): 200}  # Different hashes
+
+    ctx3 = TaskContext(train_examples=[ex3], test_examples=[], C=10)
+
+    params3 = {
+        "example_type": "train",
+        "example_index": 0,
+        "rays": [{
+            "seed_type": "color",  # Color Law (generalized)
+            "seed_color": 1,       # All color 1 pixels shoot
+            "vector": "(1,0)",     # South
+            "draw_color": 7,
+            "stop_condition": "border",
+            "include_seed": False
+        }]
+    }
+
+    builder3 = ConstraintBuilder()
+    build_S12_constraints(ctx3, params3, builder3)
+
+    # Should cast rays from BOTH (1,1) and (1,3)
+    # From (1,1): (2,1), (3,1), (4,1) = 3 pixels
+    # From (1,3): (2,3), (3,3), (4,3) = 3 pixels
+    # Total: 6 pixels
+    expected3 = 6
+    print(f"  Expected: {expected3} preferences (2 seeds × 3 ray pixels each)")
+    print(f"  Actual: {len(builder3.preferences)}")
+    assert len(builder3.preferences) == expected3, \
+        f"Expected {expected3} preferences, got {len(builder3.preferences)}"
+    print("  ✓ Color Law correctly found ALL pixels with seed_color=1")
 
     print("\n" + "=" * 70)
     print("✓ S12 builder self-test passed.")
