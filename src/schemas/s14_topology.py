@@ -138,6 +138,34 @@ def build_S14_constraints(
                     p_idx = r * W + c
                     builder.prefer_pixel_color(p_idx, fill_color, weight=20.0)
 
+    elif operation == "fill_seeded":
+        # SEEDED FILL: Sparse input seeds determine dense output fill
+        # If region contains ANY pixel of seed_color, fill entire region with seed_color
+        boundary_color = schema_params.get("boundary_color", 0)
+        seed_color = schema_params.get("seed_color", 0)
+
+        # Create boundary mask
+        boundary_mask = (input_grid == boundary_color)
+
+        # Fill holes in boundary
+        filled_mask = binary_fill_holes(boundary_mask)
+
+        # Holes are filled but not boundary
+        holes_mask = filled_mask & ~boundary_mask
+
+        # Check if ANY pixel in the hole region contains seed_color
+        # If yes, fill ENTIRE region with seed_color
+        has_seed = np.any(input_grid[holes_mask] == seed_color)
+
+        if has_seed:
+            # Fill entire region with seed_color
+            # Weight = 20.0 (Tier 3 - Topological)
+            for r in range(H):
+                for c in range(W):
+                    if holes_mask[r, c]:
+                        p_idx = r * W + c
+                        builder.prefer_pixel_color(p_idx, seed_color, weight=20.0)
+
 
 if __name__ == "__main__":
     # Self-test with toy data

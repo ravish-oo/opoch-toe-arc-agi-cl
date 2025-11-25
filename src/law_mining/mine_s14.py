@@ -95,6 +95,40 @@ def find_background_region(grid: np.ndarray) -> np.ndarray:
     return background_mask
 
 
+def find_enclosed_regions(grid: np.ndarray, boundary_color: int) -> List[np.ndarray]:
+    """
+    Find individual enclosed regions (holes) inside boundaries.
+
+    Uses scipy.ndimage to find holes and separate them into connected components.
+
+    Args:
+        grid: Input grid
+        boundary_color: Color that forms the boundary
+
+    Returns:
+        List of boolean masks, one per enclosed region
+    """
+    if not SCIPY_AVAILABLE:
+        return []
+
+    # Find all holes as a single mask
+    holes_mask = find_holes_in_boundary(grid, boundary_color)
+
+    if not np.any(holes_mask):
+        return []
+
+    # Label connected components to separate individual regions
+    labeled, num_regions = label(holes_mask)
+
+    # Create a separate mask for each region
+    regions = []
+    for region_id in range(1, num_regions + 1):
+        region_mask = (labeled == region_id)
+        regions.append(region_mask)
+
+    return regions
+
+
 def check_signal_noise_ratio(all_colors: np.ndarray) -> Tuple[Optional[int], bool]:
     """
     Check if the color distribution represents a Background (Signal) vs Texture (Noise).
@@ -344,12 +378,20 @@ def is_destructive_fill_enclosed(
                     # This pixel is unclaimed and would be overwritten
                     unclaimed_mismatch_count += 1
 
-    # Calculate error rate and check threshold
+    # Calculate error rate and check threshold (SIZE-AWARE)
     if total_region_pixels == 0:
         return False  # No region to fill
 
-    error_rate = unclaimed_mismatch_count / total_region_pixels
-    return error_rate > max_error_rate  # Destructive if error > 5%
+    # SIZE-AWARE TOLERANCE:
+    # Small regions (≤50 pixels): 0% tolerance (strict - "noise" might be micro-structure)
+    # Large regions (>50 pixels): 5% tolerance (relaxed - likely true noise)
+    if total_region_pixels <= 50:
+        # STRICT: Any mismatch in small regions is suspicious
+        return unclaimed_mismatch_count > 0  # Destructive if ANY unclaimed mismatch
+    else:
+        # RELAXED: Allow 5% noise in large regions
+        error_rate = unclaimed_mismatch_count / total_region_pixels
+        return error_rate > max_error_rate  # Destructive if error > 5%
 
 
 def is_destructive_fill_background(
@@ -408,12 +450,94 @@ def is_destructive_fill_background(
                     # This pixel is unclaimed and would be overwritten
                     unclaimed_mismatch_count += 1
 
-    # Calculate error rate and check threshold
+    # Calculate error rate and check threshold (SIZE-AWARE)
     if total_region_pixels == 0:
         return False  # No region to fill
 
-    error_rate = unclaimed_mismatch_count / total_region_pixels
-    return error_rate > max_error_rate  # Destructive if error > 5%
+    # SIZE-AWARE TOLERANCE:
+    # Small regions (≤50 pixels): 0% tolerance (strict - "noise" might be micro-structure)
+    # Large regions (>50 pixels): 5% tolerance (relaxed - likely true noise)
+    if total_region_pixels <= 50:
+        # STRICT: Any mismatch in small regions is suspicious
+        return unclaimed_mismatch_count > 0  # Destructive if ANY unclaimed mismatch
+    else:
+        # RELAXED: Allow 5% noise in large regions
+        error_rate = unclaimed_mismatch_count / total_region_pixels
+        return error_rate > max_error_rate  # Destructive if error > 5%
+
+
+def detect_seeded_fill_enclosed(
+    task_context: TaskContext,
+    boundary_color: int
+) -> Tuple[int, bool]:
+    """
+    Detect seeded fill pattern: sparse input seeds determine dense output fill.
+
+    Pattern: Input has scattered pixels of color C inside region,
+             Output has entire region filled with color C.
+
+    The "noise" pixels are actually SEEDS, not errors!
+
+    Args:
+        task_context: TaskContext with training examples
+        boundary_color: Color that defines region boundaries
+
+    Returns:
+        Tuple of (seed_color, is_valid)
+    """
+    if not SCIPY_AVAILABLE:
+        return (None, False)
+
+    # Collect input colors and output fills across all examples
+    seed_color_candidates = {}  # {color: count_of_examples_where_it_seeds}
+
+    for ex in task_context.train_examples:
+        if ex.output_grid is None:
+            continue
+
+        input_grid = ex.input_grid
+        output_grid = ex.output_grid
+
+        # Find enclosed regions
+        regions = find_enclosed_regions(input_grid, boundary_color)
+
+        for region_mask in regions:
+            if not np.any(region_mask):
+                continue
+
+            # Get input colors in this region (exclude boundary)
+            input_colors_in_region = set()
+            for r, c in zip(*np.where(region_mask)):
+                color = int(input_grid[r, c])
+                if color != 0 and color != boundary_color:
+                    input_colors_in_region.add(color)
+
+            # Get output fill color (dominant in region)
+            output_colors = output_grid[region_mask]
+            if len(output_colors) == 0:
+                continue
+
+            from collections import Counter
+            color_counts = Counter(output_colors.flatten())
+            output_fill, _ = color_counts.most_common(1)[0]
+
+            # Check if output_fill appeared as input seed
+            if output_fill in input_colors_in_region:
+                seed_color_candidates[output_fill] = seed_color_candidates.get(output_fill, 0) + 1
+
+    # Validate: seed color must work in ALL training examples
+    if not seed_color_candidates:
+        return (None, False)
+
+    # Pick the most consistent seed color
+    best_seed = max(seed_color_candidates, key=seed_color_candidates.get)
+    num_examples = len(task_context.train_examples)
+
+    # Must work in at least half of examples
+    if seed_color_candidates[best_seed] >= max(1, num_examples // 2):
+        return (best_seed, True)
+
+    return (None, False)
 
 
 def mine_S14(
@@ -499,6 +623,25 @@ def mine_S14(
                             "fill_color": fill_color
                         }
                     ))
+        else:
+            # Dominance failed - try SEEDED FILL
+            # Hypothesis: "Noise" pixels are actually SEEDS that define fill color
+            seed_color, is_seeded = detect_seeded_fill_enclosed(task_context, boundary_color)
+
+            if is_seeded and seed_color is not None:
+                # Check boundary != seed (can't seed with boundary color)
+                if boundary_color != seed_color:
+                    # Emit seeded fill rule
+                    affected = count_affected_pixels_enclosed(task_context, boundary_color, seed_color)
+                    if affected >= 1:
+                        instances.append(SchemaInstance(
+                            family_id="S14",
+                            params={
+                                "operation": "fill_seeded",
+                                "boundary_color": boundary_color,
+                                "seed_color": seed_color
+                            }
+                        ))
 
     # Mine fill_background pattern (only one possible)
     fill_color, is_valid = detect_dominant_fill_background(task_context)

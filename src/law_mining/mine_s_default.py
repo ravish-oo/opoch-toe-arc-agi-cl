@@ -1,15 +1,18 @@
 """
-S_Default miner: Law of Inertia & Colored Vacuum.
+S_Default miner: Law of Inertia & Vacuum.
 
-This miner discovers the default behavior for pixels not covered by S1-S11.
+This miner discovers the default behavior for pixels not covered by S1-S18.
 It analyzes role statistics to determine if roles exhibit:
-  - "fixed_{C}": Always becomes specific color C (e.g., fixed_4, fixed_0)
-  - "copy_input": Always preserves input color (inertia)
-  - "vacuum_{C}": Global rule for expansion zones with consistent color C
+  - "copy_input": Always preserves input color (Inertia)
+  - "fixed_0": Always becomes background/black (Vacuum)
+  - "vacuum_0": Global rule for expansion zones filled with background
+
+STRICT RESTRICTION: S_Default ONLY handles Inertia and Vacuum (background).
+Colored pixels (fixed_2, fixed_3, etc.) are OBJECTS/PATTERNS, not defaults.
+These must be explained by S2 (recolor), S18 (symmetry), or other schemas.
 
 This prevents the ILP solver from assigning arbitrary colors to unconstrained pixels.
 Handles both geometry-preserving and geometry-changing tasks.
-Supports ANY consistent color, not just 0.
 """
 
 from typing import Dict, List, Any
@@ -30,12 +33,16 @@ def mine_S_Default(
     Mine default behavior rules from role statistics.
 
     For each role_id, analyze train_in -> train_out transitions:
-      - P_zero: Probability of becoming color 0
       - P_copy: Probability of preserving input color
+      - P_zero: Probability of becoming color 0 (background)
 
-    If P_zero >= threshold: emit "fixed_0" rule
-    Elif P_copy >= threshold: emit "copy_input" rule
-    Else: ignore (active role, let S1-S11 handle)
+    STRICT RULES:
+      If P_copy >= threshold: emit "copy_input" (Inertia)
+      Elif P_zero >= threshold: emit "fixed_0" (Vacuum)
+      Else: ignore (active role - let S2/S18 handle colored pixels)
+
+    IMPORTANT: S_Default does NOT emit fixed_{C} for C != 0.
+    Colored pixels are OBJECTS/PATTERNS, not defaults.
 
     Args:
         task_context: TaskContext with train/test examples
@@ -83,17 +90,16 @@ def mine_S_Default(
         P_copy = count_copy / num_out if num_out > 0 else 0.0
 
         # Emit rules based on thresholds
-        # Prioritize copy_input (strongest invariant)
+        # STRICT: Only allow Inertia (copy_input) and Vacuum (fixed_0)
+        # Colored pixels (fixed_2, fixed_3, etc.) are OBJECTS, not defaults!
         if P_copy >= threshold:
-            rules[role_id] = "copy_input"
-        elif counts_by_color:
-            # Find most consistent color
-            best_color = max(counts_by_color, key=counts_by_color.get)
-            P_best_color = counts_by_color[best_color] / num_out if num_out > 0 else 0.0
-            if P_best_color >= threshold:
-                # Generalized: support ANY fixed color (not just 0)
-                rules[role_id] = f"fixed_{best_color}"
-        # else: active role, skip
+            rules[role_id] = "copy_input"  # Inertia
+        elif 0 in counts_by_color:
+            # ONLY allow fixed_0 (Vacuum/Background)
+            P_zero = counts_by_color[0] / num_out if num_out > 0 else 0.0
+            if P_zero >= threshold:
+                rules[role_id] = "fixed_0"  # Vacuum
+        # else: active role (colored pixels), skip - let S2/S18 handle
 
     # Mine Global Vacuum Rule (for expansion zones in geometry-changing tasks)
     # Look at ALL train_out pixels that are OUTSIDE train_in bounds
@@ -114,14 +120,15 @@ def mine_S_Default(
                     color_out = int(ex.output_grid[r, c])
                     vacuum_counts[color_out] = vacuum_counts.get(color_out, 0) + 1
 
-    # If we have vacuum pixels and they are consistently one color
-    if vacuum_pixels > 0 and vacuum_counts:
-        # Find most consistent color in expansion zone
-        best_vac_color = max(vacuum_counts, key=vacuum_counts.get)
-        P_vacuum = vacuum_counts[best_vac_color] / vacuum_pixels
-        if P_vacuum >= threshold:
-            # Special Rule ID -1 for Global Vacuum (any color)
-            rules[-1] = f"vacuum_{best_vac_color}"
+    # If we have vacuum pixels, check if they are consistently background (0)
+    # STRICT: Only allow vacuum_0 (background expansion)
+    # Colored expansion zones are STRUCTURES, not vacuum!
+    if vacuum_pixels > 0 and 0 in vacuum_counts:
+        P_vacuum_zero = vacuum_counts[0] / vacuum_pixels
+        if P_vacuum_zero >= threshold:
+            # Special Rule ID -1 for Global Vacuum (background only)
+            rules[-1] = "vacuum_0"
+    # else: Colored expansion zone - let S2/S6 handle
 
     # If no rules found, return empty list
     if not rules:
